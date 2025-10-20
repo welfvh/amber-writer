@@ -344,9 +344,9 @@ class _EditorScreenState extends State<EditorScreen> {
                   Expanded(
                     child: CupertinoSlider(
                       value: widget.settingsService.brightness,
-                      min: 0.0,
+                      min: 0.0015, // 0.15% - hardware minimum before screen turns off
                       max: 0.02,
-                      divisions: 2000, // 0.01% increments (max granularity)
+                      divisions: 185, // 0.01% increments from 0.15% to 2%
                       activeColor: isDark ? CupertinoColors.white : CupertinoColors.activeBlue,
                       onChanged: (double value) async {
                         await widget.settingsService.setBrightness(value);

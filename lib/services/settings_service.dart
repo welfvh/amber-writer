@@ -12,7 +12,7 @@ class SettingsService extends ChangeNotifier {
   String _themeMode = 'system';
   String get themeMode => _themeMode;
 
-  // Screen brightness: 0.0 to 0.02 (0% to 2%)
+  // Screen brightness: 0.0015 to 0.02 (0.15% to 2%)
   double _brightness = 0.01; // Default to 1%
   double get brightness => _brightness;
 
@@ -83,9 +83,10 @@ class SettingsService extends ChangeNotifier {
     return getEffectiveBrightness(systemBrightness) == Brightness.dark;
   }
 
-  // Set screen brightness (0.0 to 0.02 for 0% to 2%)
+  // Set screen brightness (0.0015 to 0.02 for 0.15% to 2%)
+  // 0.15% is the DC1 hardware minimum before screen turns off
   Future<void> setBrightness(double value) async {
-    _brightness = value.clamp(0.0, 0.02);
+    _brightness = value.clamp(0.0015, 0.02);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_brightnessKey, _brightness);
     notifyListeners();
