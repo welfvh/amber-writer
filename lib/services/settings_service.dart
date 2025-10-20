@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class SettingsService extends ChangeNotifier {
   static const String _themeKey = 'theme_mode';
   static const String _brightnessKey = 'screen_brightness';
+  static const String _amberModeKey = 'amber_mode';
 
   // Theme modes: 'system', 'light', 'dark'
   String _themeMode = 'system';
@@ -14,6 +15,10 @@ class SettingsService extends ChangeNotifier {
   // Screen brightness: 0.0 to 0.02 (0% to 2%)
   double _brightness = 0.01; // Default to 1%
   double get brightness => _brightness;
+
+  // Amber text mode for dark theme
+  bool _amberMode = false;
+  bool get amberMode => _amberMode;
 
   SettingsService() {
     _loadSettings();
@@ -24,6 +29,7 @@ class SettingsService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     _themeMode = prefs.getString(_themeKey) ?? 'system';
     _brightness = prefs.getDouble(_brightnessKey) ?? 0.01;
+    _amberMode = prefs.getBool(_amberModeKey) ?? false;
     notifyListeners();
   }
 
@@ -83,5 +89,21 @@ class SettingsService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_brightnessKey, _brightness);
     notifyListeners();
+  }
+
+  // Set amber text mode
+  Future<void> setAmberMode(bool value) async {
+    _amberMode = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_amberModeKey, _amberMode);
+    notifyListeners();
+  }
+
+  // Get text color based on theme and amber mode
+  Color getTextColor(bool isDark) {
+    if (isDark && _amberMode) {
+      return const Color(0xFFFF6B00); // Amber/orange color
+    }
+    return isDark ? CupertinoColors.white : CupertinoColors.black;
   }
 }

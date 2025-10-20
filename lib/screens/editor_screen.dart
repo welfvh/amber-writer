@@ -2,6 +2,7 @@
 // Features: Full-width mode, PDF export, Claude chat integration, keyboard shortcuts
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
@@ -169,7 +170,7 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
-  // Insert markdown heading
+  // Cycle through heading levels
   void _insertHeading() {
     final selection = _controller.selection;
     final text = _controller.text;
@@ -182,30 +183,64 @@ class _EditorScreenState extends State<EditorScreen> {
       lineStart--;
     }
 
-    // Check if line already has heading markers
-    if (lineStart < text.length && text[lineStart] == '#') {
-      // Already has heading, do nothing or remove it
-      return;
+    // Find end of current line
+    var lineEnd = selection.start;
+    while (lineEnd < text.length && text[lineEnd] != '\n') {
+      lineEnd++;
     }
 
-    // Insert ## at start of line
-    final newText = text.substring(0, lineStart) + '## ' + text.substring(lineStart);
+    // Get current line content
+    final lineContent = text.substring(lineStart, lineEnd);
+
+    // Count existing # markers
+    int hashCount = 0;
+    for (var i = 0; i < lineContent.length && lineContent[i] == '#'; i++) {
+      hashCount++;
+    }
+
+    // Get line content without heading markers
+    String contentWithoutHeading = lineContent;
+    if (hashCount > 0) {
+      contentWithoutHeading = lineContent.substring(hashCount).trimLeft();
+    }
+
+    // Cycle through heading levels: none → # → ## → ### → none
+    String newLine;
+    int cursorOffset;
+    if (hashCount == 0) {
+      newLine = '# $contentWithoutHeading';
+      cursorOffset = 2; // "# "
+    } else if (hashCount == 1) {
+      newLine = '## $contentWithoutHeading';
+      cursorOffset = 3; // "## "
+    } else if (hashCount == 2) {
+      newLine = '### $contentWithoutHeading';
+      cursorOffset = 4; // "### "
+    } else {
+      newLine = contentWithoutHeading;
+      cursorOffset = 0;
+    }
+
+    final newText = text.substring(0, lineStart) + newLine + text.substring(lineEnd);
 
     _controller.text = newText;
     _controller.selection = TextSelection.collapsed(
-      offset: selection.start + 3,
+      offset: lineStart + cursorOffset + (selection.start - lineStart - hashCount - (hashCount > 0 ? 1 : 0)),
     );
   }
 
   // Show theme and brightness settings modal
   void _showSettingsModal() {
+    final systemBrightness = MediaQuery.platformBrightnessOf(context);
+    final isDark = widget.settingsService.isDark(systemBrightness);
+
     showCupertinoModalPopup(
       context: context,
       builder: (context) => Container(
-        height: 320,
+        height: 400,
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: CupertinoTheme.of(context).scaffoldBackgroundColor,
+          color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
         ),
         child: SafeArea(
@@ -216,16 +251,17 @@ class _EditorScreenState extends State<EditorScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
+                  Text(
                     'Settings',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
+                      color: isDark ? CupertinoColors.white : CupertinoColors.black,
                     ),
                   ),
                   CupertinoButton(
                     padding: EdgeInsets.zero,
-                    child: const Text('Done'),
+                    child: Text('Done', style: TextStyle(color: isDark ? CupertinoColors.activeBlue : CupertinoColors.activeBlue)),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -233,38 +269,74 @@ class _EditorScreenState extends State<EditorScreen> {
               const SizedBox(height: 20),
 
               // Theme mode selector
-              const Text(
+              Text(
                 'Theme',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                ),
               ),
               const SizedBox(height: 12),
-              CupertinoSegmentedControl<String>(
+              CupertinoSlidingSegmentedControl<String>(
                 groupValue: widget.settingsService.themeMode,
-                children: const {
+                backgroundColor: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey5,
+                thumbColor: isDark ? const Color(0xFF3A3A3C) : CupertinoColors.white,
+                children: {
                   'system': Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Text('System'),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: Text('System', style: TextStyle(color: isDark ? CupertinoColors.white : CupertinoColors.black)),
                   ),
                   'light': Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Text('Light'),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: Text('Light', style: TextStyle(color: isDark ? CupertinoColors.white : CupertinoColors.black)),
                   ),
                   'dark': Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Text('Dark'),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: Text('Dark', style: TextStyle(color: isDark ? CupertinoColors.white : CupertinoColors.black)),
                   ),
                 },
-                onValueChanged: (String value) async {
-                  await widget.settingsService.setThemeMode(value);
-                  setState(() {});
+                onValueChanged: (String? value) async {
+                  if (value != null) {
+                    await widget.settingsService.setThemeMode(value);
+                    setState(() {});
+                  }
                 },
               ),
               const SizedBox(height: 24),
 
+              // Amber mode toggle
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Amber Text',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                    ),
+                  ),
+                  CupertinoSwitch(
+                    value: widget.settingsService.amberMode,
+                    activeColor: const Color(0xFFFF6B00),
+                    onChanged: (bool value) async {
+                      await widget.settingsService.setAmberMode(value);
+                      setState(() {});
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+
               // Brightness slider
-              const Text(
+              Text(
                 'Screen Brightness',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                ),
               ),
               const SizedBox(height: 8),
               Row(
@@ -275,6 +347,7 @@ class _EditorScreenState extends State<EditorScreen> {
                       min: 0.0,
                       max: 0.02,
                       divisions: 200, // 0.1% increments
+                      activeColor: isDark ? CupertinoColors.white : CupertinoColors.activeBlue,
                       onChanged: (double value) async {
                         await widget.settingsService.setBrightness(value);
                         await _applyBrightness();
@@ -287,7 +360,10 @@ class _EditorScreenState extends State<EditorScreen> {
                     width: 60,
                     child: Text(
                       '${(widget.settingsService.brightness * 100).toStringAsFixed(1)}%',
-                      style: const TextStyle(fontSize: 14),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                      ),
                       textAlign: TextAlign.right,
                     ),
                   ),
@@ -305,35 +381,59 @@ class _EditorScreenState extends State<EditorScreen> {
     showCupertinoModalPopup(
       context: context,
       builder: (context) => CupertinoActionSheet(
-        title: const Text('Actions'),
+        title: const Text('Format & Actions'),
         actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              _toggleFullWidth();
-            },
-            child: Text(_isFullWidth ? 'Exit Full Width' : 'Full Width Mode'),
-          ),
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.pop(context);
               _insertHeading();
             },
-            child: const Text('Insert Heading (##)'),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text('Cycle Heading Level'),
+                Text('Cmd+H', style: TextStyle(color: CupertinoColors.systemGrey, fontSize: 14)),
+              ],
+            ),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.pop(context);
+              _toggleFullWidth();
+            },
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(_isFullWidth ? 'Exit Full Width' : 'Full Width Mode'),
+                const Text('Cmd+W', style: TextStyle(color: CupertinoColors.systemGrey, fontSize: 14)),
+              ],
+            ),
           ),
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.pop(context);
               _exportToPdf();
             },
-            child: const Text('Export to PDF'),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text('Export to PDF'),
+                Text('Cmd+P', style: TextStyle(color: CupertinoColors.systemGrey, fontSize: 14)),
+              ],
+            ),
           ),
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.pop(context);
               _openClaudeChat();
             },
-            child: const Text('Open in Claude Chat'),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: const [
+                Text('Open in Claude Chat'),
+                Text('Cmd+L', style: TextStyle(color: CupertinoColors.systemGrey, fontSize: 14)),
+              ],
+            ),
           ),
         ],
         cancelButton: CupertinoActionSheetAction(
@@ -377,8 +477,13 @@ class _EditorScreenState extends State<EditorScreen> {
 
     final systemBrightness = MediaQuery.platformBrightnessOf(context);
     final isDark = widget.settingsService.isDark(systemBrightness);
-    final textColor = isDark ? CupertinoColors.white : CupertinoColors.black;
+    final textColor = widget.settingsService.getTextColor(isDark);
     final placeholderColor = CupertinoColors.systemGrey;
+    final selectionColor = isDark
+        ? (widget.settingsService.amberMode
+            ? const Color(0xFFFF6B00).withOpacity(0.4) // Amber selection
+            : CupertinoColors.white.withOpacity(0.3)) // White selection
+        : CupertinoColors.activeBlue.withOpacity(0.3);
 
     return MouseRegion(
       onHover: (_) {
@@ -428,25 +533,34 @@ class _EditorScreenState extends State<EditorScreen> {
                   horizontal: 20,
                   vertical: _showUI ? 20 : 60,
                 ),
-                child: CupertinoTextField(
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  maxLines: null,
-                  expands: true,
-                  autofocus: true,
-                  decoration: const BoxDecoration(),
-                  style: TextStyle(
-                    fontFamily: 'Times New Roman',
-                    fontSize: 18,
-                    height: 1.6,
-                    color: textColor,
+                child: Theme(
+                  data: ThemeData(
+                    textSelectionTheme: TextSelectionThemeData(
+                      selectionColor: selectionColor,
+                      cursorColor: textColor,
+                    ),
                   ),
-                  placeholder: 'Start writing...',
-                  placeholderStyle: TextStyle(
-                    fontFamily: 'Times New Roman',
-                    fontSize: 18,
-                    height: 1.6,
-                    color: placeholderColor,
+                  child: CupertinoTextField(
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    maxLines: null,
+                    expands: true,
+                    autofocus: true,
+                    decoration: const BoxDecoration(),
+                    style: TextStyle(
+                      fontFamily: 'Times New Roman',
+                      fontSize: 18,
+                      height: 1.6,
+                      color: textColor,
+                    ),
+                    cursorColor: textColor,
+                    placeholder: 'Start writing...',
+                    placeholderStyle: TextStyle(
+                      fontFamily: 'Times New Roman',
+                      fontSize: 18,
+                      height: 1.6,
+                      color: placeholderColor,
+                    ),
                   ),
                 ),
               ),
