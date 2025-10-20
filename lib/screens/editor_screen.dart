@@ -346,7 +346,7 @@ class _EditorScreenState extends State<EditorScreen> {
                       value: widget.settingsService.brightness,
                       min: 0.0,
                       max: 0.02,
-                      divisions: 200, // 0.1% increments
+                      divisions: 2000, // 0.01% increments (max granularity)
                       activeColor: isDark ? CupertinoColors.white : CupertinoColors.activeBlue,
                       onChanged: (double value) async {
                         await widget.settingsService.setBrightness(value);
@@ -357,9 +357,9 @@ class _EditorScreenState extends State<EditorScreen> {
                   ),
                   const SizedBox(width: 12),
                   SizedBox(
-                    width: 60,
+                    width: 70,
                     child: Text(
-                      '${(widget.settingsService.brightness * 100).toStringAsFixed(1)}%',
+                      '${(widget.settingsService.brightness * 100).toStringAsFixed(2)}%',
                       style: TextStyle(
                         fontSize: 14,
                         color: isDark ? CupertinoColors.white : CupertinoColors.black,
