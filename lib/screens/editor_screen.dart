@@ -37,6 +37,7 @@ class _EditorScreenState extends State<EditorScreen> {
     super.initState();
     _loadDocument();
     _applyBrightness();
+    _enableImmersiveMode();
 
     // Auto-save on text change and hide UI when typing
     _controller.addListener(() {
@@ -58,6 +59,14 @@ class _EditorScreenState extends State<EditorScreen> {
         });
       }
     });
+  }
+
+  // Enable immersive mode on Android to hide system bars
+  void _enableImmersiveMode() {
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.immersiveSticky,
+      overlays: [],
+    );
   }
 
   // Apply saved brightness setting
