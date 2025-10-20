@@ -53,6 +53,9 @@ dependencies:
   # Settings persistence
   shared_preferences: ^2.3.4
 
+  # Screen brightness control
+  screen_brightness: ^1.0.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
