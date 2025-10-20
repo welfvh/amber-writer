@@ -8,11 +8,13 @@ import 'screens/editor_screen.dart';
 import 'services/settings_service.dart';
 
 void main() {
-  // Lock to portrait mode for optimal reading experience
+  // Allow all orientations (portrait and landscape)
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
   ]);
 
   runApp(const AmberWriterApp());
