@@ -1,6 +1,7 @@
 // Main editor screen - Minimalist markdown text editor with iOS-style UI
 // Features: Full-width mode, PDF export, Claude chat integration, keyboard shortcuts
 
+import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -33,6 +34,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   bool _showPreview = false;
   bool _showUI = true;
   bool _showSidebar = false;
+  double _lastScrollOffset = 0.0;
 
   @override
   void initState() {
@@ -142,7 +144,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     });
   }
 
-  // Create new document
+  // Create new document with date as default title (e.g., "Mon Oct 29")
   Future<void> _createNewDocument() async {
     // Save current document first
     if (_currentDocument != null) {
@@ -150,16 +152,22 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       await _storageService.saveCurrentDocument(_currentDocument!);
     }
 
-    // Create new document
+    // Generate default title with current date
+    final now = DateTime.now();
+    final weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final defaultTitle = '${weekdays[now.weekday - 1]} ${months[now.month - 1]} ${now.day}';
+
+    // Create new document with date as initial content
     final newDoc = Document(
       id: const Uuid().v4(),
-      content: '',
+      content: defaultTitle,
       lastModified: DateTime.now(),
     );
 
     setState(() {
       _currentDocument = newDoc;
-      _controller.text = '';
+      _controller.text = defaultTitle;
     });
 
     await _storageService.saveCurrentDocument(newDoc);
@@ -708,6 +716,11 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
         child: CupertinoPageScaffold(
           navigationBar: _showUI
               ? CupertinoNavigationBar(
+                  // Increase height on Android by adding vertical padding
+                  padding: EdgeInsetsDirectional.only(
+                    top: Platform.isAndroid ? 12 : 0,
+                    bottom: Platform.isAndroid ? 12 : 0,
+                  ),
                   leading: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -752,15 +765,21 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
               : null,
           child: Stack(
             children: [
-              // Main editor
-              SafeArea(
-                child: Center(
-                  child: Container(
-                    width: contentWidth,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 0, // Remove unnecessary top/bottom margins
-                    ),
+              // Main editor - Remove top/bottom SafeArea padding for edge-to-edge content
+              MediaQuery.removePadding(
+                context: context,
+                removeTop: true,
+                removeBottom: true,
+                child: SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: Center(
+                    child: Container(
+                      width: contentWidth,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 0, // Remove unnecessary top/bottom margins
+                      ),
                     child: Theme(
                       data: ThemeData(
                         textSelectionTheme: TextSelectionThemeData(
@@ -768,31 +787,49 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                           cursorColor: textColor,
                         ),
                       ),
-                      child: CupertinoTextField(
-                        controller: _controller,
-                        focusNode: _focusNode,
-                        maxLines: null,
-                        expands: true,
-                        autofocus: true,
-                        decoration: const BoxDecoration(),
-                        style: TextStyle(
-                          fontFamily: 'Times New Roman',
-                          fontSize: 18,
-                          height: 1.6,
-                          color: textColor,
-                        ),
-                        cursorColor: textColor,
-                        placeholder: 'Start writing...',
-                        placeholderStyle: TextStyle(
-                          fontFamily: 'Times New Roman',
-                          fontSize: 18,
-                          height: 1.6,
-                          color: placeholderColor,
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: (ScrollNotification notification) {
+                          // Dismiss keyboard when scrolling up by about half a page on Android
+                          if (notification is ScrollUpdateNotification) {
+                            final currentOffset = notification.metrics.pixels;
+                            final delta = currentOffset - _lastScrollOffset;
+
+                            // If scrolling up (negative delta) by ~half page (300px), dismiss keyboard
+                            if (delta < -300 && _focusNode.hasFocus) {
+                              _focusNode.unfocus();
+                            }
+
+                            _lastScrollOffset = currentOffset;
+                          }
+                          return false;
+                        },
+                        child: CupertinoTextField(
+                          controller: _controller,
+                          focusNode: _focusNode,
+                          maxLines: null,
+                          expands: true,
+                          autofocus: true,
+                          decoration: const BoxDecoration(),
+                          style: TextStyle(
+                            fontFamily: 'Times New Roman',
+                            fontSize: 18,
+                            height: 1.6,
+                            color: textColor,
+                          ),
+                          cursorColor: textColor,
+                          placeholder: 'Start writing...',
+                          placeholderStyle: TextStyle(
+                            fontFamily: 'Times New Roman',
+                            fontSize: 18,
+                            height: 1.6,
+                            color: placeholderColor,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
+              ),
               ),
 
               // Sidebar backdrop - tap outside to dismiss
