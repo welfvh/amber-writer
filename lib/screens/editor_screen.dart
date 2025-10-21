@@ -28,15 +28,18 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   final FocusNode _focusNode = FocusNode();
 
   Document? _currentDocument;
+  List<Document> _allDocuments = [];
   bool _isFullWidth = false;
   bool _showPreview = false;
   bool _showUI = true;
+  bool _showSidebar = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadDocument();
+    _loadAllDocuments();
     _applyBrightness();
     _enableImmersiveMode();
     _syncBrightnessFromSystem();
@@ -131,6 +134,55 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     }
   }
 
+  // Load all documents for sidebar
+  Future<void> _loadAllDocuments() async {
+    final docs = await _storageService.loadAllDocuments();
+    setState(() {
+      _allDocuments = docs;
+    });
+  }
+
+  // Create new document
+  Future<void> _createNewDocument() async {
+    // Save current document first
+    if (_currentDocument != null) {
+      await _storageService.saveDocument(_currentDocument!);
+      await _storageService.saveCurrentDocument(_currentDocument!);
+    }
+
+    // Create new document
+    final newDoc = Document(
+      id: const Uuid().v4(),
+      content: '',
+      lastModified: DateTime.now(),
+    );
+
+    setState(() {
+      _currentDocument = newDoc;
+      _controller.text = '';
+    });
+
+    await _storageService.saveCurrentDocument(newDoc);
+    await _loadAllDocuments();
+  }
+
+  // Switch to a different document
+  Future<void> _switchToDocument(Document doc) async {
+    // Save current document first
+    if (_currentDocument != null) {
+      await _storageService.saveDocument(_currentDocument!);
+      await _storageService.saveCurrentDocument(_currentDocument!);
+    }
+
+    setState(() {
+      _currentDocument = doc;
+      _controller.text = doc.content;
+      _showSidebar = false; // Close sidebar after switching
+    });
+
+    await _storageService.saveCurrentDocument(doc);
+  }
+
   // Auto-save document
   Future<void> _autoSave() async {
     if (_currentDocument == null) return;
@@ -141,9 +193,13 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     );
 
     await _storageService.saveCurrentDocument(updatedDoc);
+    await _storageService.saveDocument(updatedDoc);
     setState(() {
       _currentDocument = updatedDoc;
     });
+
+    // Reload document list to update titles
+    await _loadAllDocuments();
   }
 
   // Toggle full-width mode
@@ -497,6 +553,22 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     }
   }
 
+  // Format date for display in sidebar
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      return 'Today ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    } else {
+      return '${date.month}/${date.day}/${date.year}';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -542,6 +614,26 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
         child: CupertinoPageScaffold(
           navigationBar: _showUI
               ? CupertinoNavigationBar(
+                  leading: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        child: Icon(_showSidebar ? CupertinoIcons.sidebar_left : CupertinoIcons.list_bullet),
+                        onPressed: () {
+                          setState(() {
+                            _showSidebar = !_showSidebar;
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        child: const Icon(CupertinoIcons.add),
+                        onPressed: _createNewDocument,
+                      ),
+                    ],
+                  ),
                   middle: Text(_currentDocument?.title ?? 'Untitled'),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -561,46 +653,134 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                   ),
                 )
               : null,
-          child: SafeArea(
-            child: Center(
-              child: Container(
-                width: contentWidth,
-                padding: EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: _showUI ? 20 : 60,
-                ),
-                child: Theme(
-                  data: ThemeData(
-                    textSelectionTheme: TextSelectionThemeData(
-                      selectionColor: selectionColor,
-                      cursorColor: textColor,
+          child: Stack(
+            children: [
+              // Main editor
+              SafeArea(
+                child: Center(
+                  child: Container(
+                    width: contentWidth,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: _showUI ? 20 : 60,
                     ),
-                  ),
-                  child: CupertinoTextField(
-                    controller: _controller,
-                    focusNode: _focusNode,
-                    maxLines: null,
-                    expands: true,
-                    autofocus: true,
-                    decoration: const BoxDecoration(),
-                    style: TextStyle(
-                      fontFamily: 'Times New Roman',
-                      fontSize: 18,
-                      height: 1.6,
-                      color: textColor,
-                    ),
-                    cursorColor: textColor,
-                    placeholder: 'Start writing...',
-                    placeholderStyle: TextStyle(
-                      fontFamily: 'Times New Roman',
-                      fontSize: 18,
-                      height: 1.6,
-                      color: placeholderColor,
+                    child: Theme(
+                      data: ThemeData(
+                        textSelectionTheme: TextSelectionThemeData(
+                          selectionColor: selectionColor,
+                          cursorColor: textColor,
+                        ),
+                      ),
+                      child: CupertinoTextField(
+                        controller: _controller,
+                        focusNode: _focusNode,
+                        maxLines: null,
+                        expands: true,
+                        autofocus: true,
+                        decoration: const BoxDecoration(),
+                        style: TextStyle(
+                          fontFamily: 'Times New Roman',
+                          fontSize: 18,
+                          height: 1.6,
+                          color: textColor,
+                        ),
+                        cursorColor: textColor,
+                        placeholder: 'Start writing...',
+                        placeholderStyle: TextStyle(
+                          fontFamily: 'Times New Roman',
+                          fontSize: 18,
+                          height: 1.6,
+                          color: placeholderColor,
+                        ),
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
+
+              // Sidebar
+              if (_showSidebar)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 300,
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+                      border: Border(
+                        right: BorderSide(
+                          color: isDark ? const Color(0xFF3A3A3C) : CupertinoColors.systemGrey5,
+                          width: 1,
+                        ),
+                      ),
+                    ),
+                    child: SafeArea(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Text(
+                              'Documents',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: ListView.builder(
+                              itemCount: _allDocuments.length,
+                              itemBuilder: (context, index) {
+                                final doc = _allDocuments[index];
+                                final isCurrentDoc = doc.id == _currentDocument?.id;
+
+                                return CupertinoButton(
+                                  padding: EdgeInsets.zero,
+                                  onPressed: () => _switchToDocument(doc),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    decoration: BoxDecoration(
+                                      color: isCurrentDoc
+                                          ? (isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey6)
+                                          : Colors.transparent,
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          doc.title,
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: isCurrentDoc ? FontWeight.w600 : FontWeight.normal,
+                                            color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          _formatDate(doc.lastModified),
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: CupertinoColors.systemGrey,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
