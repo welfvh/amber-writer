@@ -356,7 +356,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                      color: widget.settingsService.getTextColor(isDark),
                     ),
                   ),
                   CupertinoButton(
@@ -374,7 +374,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
-                  color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                  color: widget.settingsService.getTextColor(isDark),
                 ),
               ),
               const SizedBox(height: 12),
@@ -385,15 +385,15 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                 children: {
                   'system': Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Text('System', style: TextStyle(color: isDark ? CupertinoColors.white : CupertinoColors.black)),
+                    child: Text('System', style: TextStyle(color: widget.settingsService.getTextColor(isDark))),
                   ),
                   'light': Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Text('Light', style: TextStyle(color: isDark ? CupertinoColors.white : CupertinoColors.black)),
+                    child: Text('Light', style: TextStyle(color: widget.settingsService.getTextColor(isDark))),
                   ),
                   'dark': Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Text('Dark', style: TextStyle(color: isDark ? CupertinoColors.white : CupertinoColors.black)),
+                    child: Text('Dark', style: TextStyle(color: widget.settingsService.getTextColor(isDark))),
                   ),
                 },
                 onValueChanged: (String? value) async {
@@ -405,71 +405,75 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
               ),
               const SizedBox(height: 24),
 
-              // Amber mode toggle
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Amber Text',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: isDark ? CupertinoColors.white : CupertinoColors.black,
+              // Amber mode toggle - hide on Android/e-ink devices like DC1
+              if (!Platform.isAndroid) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Amber Text',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: widget.settingsService.getTextColor(isDark),
+                      ),
                     ),
-                  ),
-                  CupertinoSwitch(
-                    value: widget.settingsService.amberMode,
-                    activeColor: const Color(0xFFFF6B00),
-                    onChanged: (bool value) async {
-                      await widget.settingsService.setAmberMode(value);
-                      setState(() {});
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
-              // Brightness slider
-              Text(
-                'Screen Brightness',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: isDark ? CupertinoColors.white : CupertinoColors.black,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: CupertinoSlider(
-                      value: _brightnessToSlider(widget.settingsService.brightness),
-                      min: 0.0, // Full logarithmic range
-                      max: 1.0,
-                      divisions: 1000, // Smooth control across full range
-                      activeColor: isDark ? CupertinoColors.white : CupertinoColors.activeBlue,
-                      onChanged: (double sliderValue) async {
-                        final brightness = _sliderToBrightness(sliderValue);
-                        await widget.settingsService.setBrightness(brightness);
-                        await _applyBrightness();
+                    CupertinoSwitch(
+                      value: widget.settingsService.amberMode,
+                      activeColor: const Color(0xFFFF6B00),
+                      onChanged: (bool value) async {
+                        await widget.settingsService.setAmberMode(value);
                         setState(() {});
                       },
                     ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+              ],
+
+              // Brightness slider - hide on macOS
+              if (!Platform.isMacOS) ...[
+                Text(
+                  'Screen Brightness',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: widget.settingsService.getTextColor(isDark),
                   ),
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: 70,
-                    child: Text(
-                      '${(widget.settingsService.brightness * 100).toStringAsFixed(1)}%',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: CupertinoSlider(
+                        value: _brightnessToSlider(widget.settingsService.brightness),
+                        min: 0.0, // Full logarithmic range
+                        max: 1.0,
+                        divisions: 1000, // Smooth control across full range
+                        activeColor: isDark ? CupertinoColors.white : CupertinoColors.activeBlue,
+                        onChanged: (double sliderValue) async {
+                          final brightness = _sliderToBrightness(sliderValue);
+                          await widget.settingsService.setBrightness(brightness);
+                          await _applyBrightness();
+                          setState(() {});
+                        },
                       ),
-                      textAlign: TextAlign.right,
                     ),
-                  ),
-                ],
-              ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 70,
+                      child: Text(
+                        '${(widget.settingsService.brightness * 100).toStringAsFixed(1)}%',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: widget.settingsService.getTextColor(isDark),
+                        ),
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -726,7 +730,10 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                     children: [
                       CupertinoButton(
                         padding: EdgeInsets.zero,
-                        child: Icon(_showSidebar ? CupertinoIcons.sidebar_left : CupertinoIcons.list_bullet),
+                        child: Icon(
+                          _showSidebar ? CupertinoIcons.sidebar_left : CupertinoIcons.list_bullet,
+                          color: widget.settingsService.getTextColor(isDark),
+                        ),
                         onPressed: () {
                           setState(() {
                             _showSidebar = !_showSidebar;
@@ -736,27 +743,39 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                       const SizedBox(width: 8),
                       CupertinoButton(
                         padding: EdgeInsets.zero,
-                        child: const Icon(CupertinoIcons.add),
+                        child: Icon(
+                          CupertinoIcons.add,
+                          color: widget.settingsService.getTextColor(isDark),
+                        ),
                         onPressed: _createNewDocument,
                       ),
                     ],
                   ),
                   middle: GestureDetector(
                     onTap: _editDocumentTitle,
-                    child: Text(_currentDocument?.title ?? 'Untitled'),
+                    child: Text(
+                      _currentDocument?.title ?? 'Untitled',
+                      style: TextStyle(color: widget.settingsService.getTextColor(isDark)),
+                    ),
                   ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       CupertinoButton(
                         padding: EdgeInsets.zero,
-                        child: Icon(_getThemeIcon()),
+                        child: Icon(
+                          _getThemeIcon(),
+                          color: widget.settingsService.getTextColor(isDark),
+                        ),
                         onPressed: _showSettingsModal,
                       ),
                       const SizedBox(width: 8),
                       CupertinoButton(
                         padding: EdgeInsets.zero,
-                        child: const Icon(CupertinoIcons.ellipsis),
+                        child: Icon(
+                          CupertinoIcons.ellipsis,
+                          color: widget.settingsService.getTextColor(isDark),
+                        ),
                         onPressed: _showActionsMenu,
                       ),
                     ],
@@ -885,7 +904,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                                 style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w600,
-                                  color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                                  color: widget.settingsService.getTextColor(isDark),
                                 ),
                               ),
                             ),
@@ -916,7 +935,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                                             style: TextStyle(
                                               fontSize: 15,
                                               fontWeight: isCurrentDoc ? FontWeight.w500 : FontWeight.normal,
-                                              color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                                              color: widget.settingsService.getTextColor(isDark),
                                             ),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
