@@ -21,7 +21,7 @@ class EditorScreen extends StatefulWidget {
   State<EditorScreen> createState() => _EditorScreenState();
 }
 
-class _EditorScreenState extends State<EditorScreen> {
+class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver {
   final TextEditingController _controller = TextEditingController();
   final StorageService _storageService = StorageService();
   final PdfService _pdfService = PdfService();
@@ -35,9 +35,11 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadDocument();
     _applyBrightness();
     _enableImmersiveMode();
+    _syncBrightnessFromSystem();
 
     // Auto-save on text change and hide UI when typing
     _controller.addListener(() {
@@ -61,6 +63,30 @@ class _EditorScreenState extends State<EditorScreen> {
     });
   }
 
+  // Sync brightness from system when returning to app
+  void _syncBrightnessFromSystem() async {
+    try {
+      final systemBrightness = await ScreenBrightness().current;
+      // Only update if significantly different to avoid conflicts
+      if ((systemBrightness - widget.settingsService.brightness).abs() > 0.001) {
+        await widget.settingsService.setBrightness(systemBrightness);
+        setState(() {});
+      }
+    } catch (e) {
+      // Brightness reading might not be available on all platforms
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      // Sync brightness when returning to app
+      _syncBrightnessFromSystem();
+      _enableImmersiveMode(); // Re-enable immersive mode after returning
+    }
+  }
+
   // Enable immersive mode on Android to hide system bars
   void _enableImmersiveMode() {
     SystemChrome.setEnabledSystemUIMode(
@@ -80,6 +106,7 @@ class _EditorScreenState extends State<EditorScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
