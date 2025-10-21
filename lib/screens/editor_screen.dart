@@ -40,7 +40,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     WidgetsBinding.instance.addObserver(this);
     _loadDocument();
     _loadAllDocuments();
-    _applyBrightness();
+    // Don't apply saved brightness on startup - submit to system brightness instead
     _enableImmersiveMode();
     _syncBrightnessFromSystem();
 
@@ -435,13 +435,14 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                 children: [
                   Expanded(
                     child: CupertinoSlider(
-                      value: widget.settingsService.brightness,
-                      min: 0.0015, // 0.15% - hardware minimum before screen turns off
-                      max: 0.02,
-                      divisions: 185, // 0.01% increments from 0.15% to 2%
+                      value: _brightnessToSlider(widget.settingsService.brightness),
+                      min: 0.0, // Full logarithmic range
+                      max: 1.0,
+                      divisions: 1000, // Smooth control across full range
                       activeColor: isDark ? CupertinoColors.white : CupertinoColors.activeBlue,
-                      onChanged: (double value) async {
-                        await widget.settingsService.setBrightness(value);
+                      onChanged: (double sliderValue) async {
+                        final brightness = _sliderToBrightness(sliderValue);
+                        await widget.settingsService.setBrightness(brightness);
                         await _applyBrightness();
                         setState(() {});
                       },
@@ -451,7 +452,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                   SizedBox(
                     width: 70,
                     child: Text(
-                      '${(widget.settingsService.brightness * 100).toStringAsFixed(2)}%',
+                      '${(widget.settingsService.brightness * 100).toStringAsFixed(1)}%',
                       style: TextStyle(
                         fontSize: 14,
                         color: isDark ? CupertinoColors.white : CupertinoColors.black,
@@ -569,6 +570,99 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     }
   }
 
+  // Show dialog to edit document title
+  Future<void> _editDocumentTitle() async {
+    if (_currentDocument == null) return;
+
+    final TextEditingController titleController = TextEditingController(text: _currentDocument!.title);
+
+    await showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Edit Document Title'),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: CupertinoTextField(
+            controller: titleController,
+            placeholder: 'Document title',
+            autofocus: true,
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () async {
+              final newTitle = titleController.text.trim();
+              if (newTitle.isNotEmpty) {
+                // Update document with custom title by modifying the first line
+                final lines = _controller.text.split('\n');
+                String newContent;
+                if (lines.isEmpty || lines.first.trim().isEmpty) {
+                  newContent = newTitle + '\n' + _controller.text;
+                } else {
+                  // Replace first line with new title
+                  lines[0] = newTitle;
+                  newContent = lines.join('\n');
+                }
+                _controller.text = newContent;
+
+                final updatedDoc = _currentDocument!.copyWith(
+                  content: newContent,
+                  lastModified: DateTime.now(),
+                );
+
+                await _storageService.saveCurrentDocument(updatedDoc);
+                await _storageService.saveDocument(updatedDoc);
+                setState(() {
+                  _currentDocument = updatedDoc;
+                });
+                await _loadAllDocuments();
+              }
+              Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    titleController.dispose();
+  }
+
+  // Convert brightness value (0.0-1.0) to logarithmic slider position (0.0-1.0)
+  // Slider mapping: 0-33% = 0-1%, 33-66% = 1-10%, 66-100% = 10-100%
+  double _brightnessToSlider(double brightness) {
+    if (brightness <= 0.01) {
+      // 0-1% brightness maps to 0-33% slider
+      return (brightness / 0.01) * 0.33;
+    } else if (brightness <= 0.1) {
+      // 1-10% brightness maps to 33-66% slider
+      return 0.33 + ((brightness - 0.01) / 0.09) * 0.33;
+    } else {
+      // 10-100% brightness maps to 66-100% slider
+      return 0.66 + ((brightness - 0.1) / 0.9) * 0.34;
+    }
+  }
+
+  // Convert logarithmic slider position (0.0-1.0) to brightness value (0.0-1.0)
+  // Slider mapping: 0-33% = 0-1%, 33-66% = 1-10%, 66-100% = 10-100%
+  double _sliderToBrightness(double sliderValue) {
+    if (sliderValue <= 0.33) {
+      // 0-33% slider maps to 0-1% brightness
+      return (sliderValue / 0.33) * 0.01;
+    } else if (sliderValue <= 0.66) {
+      // 33-66% slider maps to 1-10% brightness
+      return 0.01 + ((sliderValue - 0.33) / 0.33) * 0.09;
+    } else {
+      // 66-100% slider maps to 10-100% brightness
+      return 0.1 + ((sliderValue - 0.66) / 0.34) * 0.9;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -634,7 +728,10 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                       ),
                     ],
                   ),
-                  middle: Text(_currentDocument?.title ?? 'Untitled'),
+                  middle: GestureDetector(
+                    onTap: _editDocumentTitle,
+                    child: Text(_currentDocument?.title ?? 'Untitled'),
+                  ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -660,9 +757,9 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                 child: Center(
                   child: Container(
                     width: contentWidth,
-                    padding: EdgeInsets.symmetric(
+                    padding: const EdgeInsets.symmetric(
                       horizontal: 20,
-                      vertical: _showUI ? 20 : 60,
+                      vertical: 0, // Remove unnecessary top/bottom margins
                     ),
                     child: Theme(
                       data: ThemeData(
@@ -698,84 +795,112 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                 ),
               ),
 
+              // Sidebar backdrop - tap outside to dismiss
+              if (_showSidebar)
+                Positioned.fill(
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _showSidebar = false;
+                      });
+                    },
+                    child: Container(
+                      color: Colors.black.withOpacity(0.3),
+                    ),
+                  ),
+                ),
+
               // Sidebar
               if (_showSidebar)
                 Positioned(
                   left: 0,
                   top: 0,
                   bottom: 0,
-                  child: Container(
-                    width: 300,
-                    decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
-                      border: Border(
-                        right: BorderSide(
-                          color: isDark ? const Color(0xFF3A3A3C) : CupertinoColors.systemGrey5,
-                          width: 1,
-                        ),
-                      ),
-                    ),
-                    child: SafeArea(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Text(
-                              'Documents',
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: isDark ? CupertinoColors.white : CupertinoColors.black,
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                            child: ListView.builder(
-                              itemCount: _allDocuments.length,
-                              itemBuilder: (context, index) {
-                                final doc = _allDocuments[index];
-                                final isCurrentDoc = doc.id == _currentDocument?.id;
-
-                                return CupertinoButton(
-                                  padding: EdgeInsets.zero,
-                                  onPressed: () => _switchToDocument(doc),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                    decoration: BoxDecoration(
-                                      color: isCurrentDoc
-                                          ? (isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey6)
-                                          : Colors.transparent,
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          doc.title,
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: isCurrentDoc ? FontWeight.w600 : FontWeight.normal,
-                                            color: isDark ? CupertinoColors.white : CupertinoColors.black,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          _formatDate(doc.lastModified),
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: CupertinoColors.systemGrey,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
+                  child: GestureDetector(
+                    onHorizontalDragEnd: (details) {
+                      // Swipe left to dismiss
+                      if (details.primaryVelocity! < -300) {
+                        setState(() {
+                          _showSidebar = false;
+                        });
+                      }
+                    },
+                    child: Container(
+                      width: 300,
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 10,
+                            offset: const Offset(2, 0),
                           ),
                         ],
+                      ),
+                      child: SafeArea(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Text(
+                                'Documents',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: ListView.builder(
+                                itemCount: _allDocuments.length,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                itemBuilder: (context, index) {
+                                  final doc = _allDocuments[index];
+                                  final isCurrentDoc = doc.id == _currentDocument?.id;
+
+                                  return GestureDetector(
+                                    onTap: () => _switchToDocument(doc),
+                                    child: Container(
+                                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: isCurrentDoc
+                                            ? (isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey6)
+                                            : Colors.transparent,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            doc.title,
+                                            style: TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: isCurrentDoc ? FontWeight.w500 : FontWeight.normal,
+                                              color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            _formatDate(doc.lastModified),
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: CupertinoColors.systemGrey,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

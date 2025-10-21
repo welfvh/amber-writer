@@ -83,10 +83,10 @@ class SettingsService extends ChangeNotifier {
     return getEffectiveBrightness(systemBrightness) == Brightness.dark;
   }
 
-  // Set screen brightness (0.0015 to 0.02 for 0.15% to 2%)
-  // 0.15% is the DC1 hardware minimum before screen turns off
+  // Set screen brightness (0.0 to 1.0 = 0% to 100%)
+  // Logarithmic slider in UI: 0-33% slider = 0-1%, 33-66% = 1-10%, 66-100% = 10-100%
   Future<void> setBrightness(double value) async {
-    _brightness = value.clamp(0.0015, 0.02);
+    _brightness = value.clamp(0.0, 1.0);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_brightnessKey, _brightness);
     notifyListeners();
