@@ -6,12 +6,12 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:markdown/markdown.dart' as md;
 
 class PdfService {
-  // Export document to PDF with elegant typography
-  Future<void> exportToPdf(String content, String title) async {
+  // Export document to PDF with elegant typography, returns the saved file path
+  Future<String?> exportToPdf(String content, String title) async {
     final pdf = pw.Document();
 
     // Parse markdown to extract structure
@@ -92,24 +92,29 @@ class PdfService {
       ),
     );
 
-    // Save and share PDF
-    await _savePdf(pdf, title);
+    // Save PDF and return path
+    return await _savePdf(pdf, title);
   }
 
-  // Save PDF to temporary directory and share
-  Future<void> _savePdf(pw.Document pdf, String title) async {
-    final output = await getTemporaryDirectory();
+  // Save PDF using file picker dialog, returns the saved file path
+  Future<String?> _savePdf(pw.Document pdf, String title) async {
     final fileName = '${title.replaceAll(RegExp(r'[^\w\s-]'), '')}.pdf';
-    final file = File('${output.path}/$fileName');
 
-    await file.writeAsBytes(await pdf.save());
-
-    // Share PDF
-    await Share.shareXFiles(
-      [XFile(file.path)],
-      subject: title,
-      text: 'Exported from Amber Writer',
+    // Show save file dialog - defaults to Downloads folder
+    final outputPath = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save PDF',
+      fileName: fileName,
+      initialDirectory: Platform.isMacOS
+          ? '${Platform.environment['HOME']}/Downloads'
+          : null,
     );
+
+    if (outputPath != null) {
+      final file = File(outputPath);
+      await file.writeAsBytes(await pdf.save());
+      return outputPath;
+    }
+    return null;
   }
 
   // Print PDF directly

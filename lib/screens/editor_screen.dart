@@ -8,10 +8,25 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 import 'package:screen_brightness/screen_brightness.dart';
+import 'package:file_picker/file_picker.dart';
 import '../models/document.dart';
 import '../services/storage_service.dart';
 import '../services/pdf_service.dart';
 import '../services/settings_service.dart';
+import '../services/markdown_text_controller.dart';
+
+// Intent classes for keyboard shortcuts
+class BoldIntent extends Intent {
+  const BoldIntent();
+}
+
+class ItalicIntent extends Intent {
+  const ItalicIntent();
+}
+
+class HeadingIntent extends Intent {
+  const HeadingIntent();
+}
 
 class EditorScreen extends StatefulWidget {
   final SettingsService settingsService;
@@ -23,7 +38,7 @@ class EditorScreen extends StatefulWidget {
 }
 
 class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver {
-  final TextEditingController _controller = TextEditingController();
+  final MarkdownTextEditingController _controller = MarkdownTextEditingController();
   final StorageService _storageService = StorageService();
   final PdfService _pdfService = PdfService();
   final FocusNode _focusNode = FocusNode();
@@ -35,6 +50,8 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   bool _showUI = true;
   bool _showSidebar = false;
   double _lastScrollOffset = 0.0;
+  bool _isHandlingListContinuation = false;
+  int _lastTextLength = 0;
 
   @override
   void initState() {
@@ -46,9 +63,11 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     _enableImmersiveMode();
     _syncBrightnessFromSystem();
 
-    // Auto-save on text change and hide UI when typing
+    // Auto-save on text change, hide UI when typing, and detect markdown shortcuts
     _controller.addListener(() {
       _autoSave();
+      _detectMarkdownShortcuts();
+      _handleListContinuation();
       // Hide UI when typing
       if (_showUI) {
         setState(() {
@@ -217,38 +236,91 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     });
   }
 
-  // Export to PDF
+  // Export to PDF with option to show in Finder
   Future<void> _exportToPdf() async {
     if (_currentDocument == null) return;
 
     try {
-      await _pdfService.exportToPdf(
+      final filePath = await _pdfService.exportToPdf(
         _currentDocument!.content,
         _currentDocument!.title,
       );
 
-      _showMessage('PDF exported successfully');
+      if (filePath != null) {
+        _showExportSuccessDialog(filePath);
+      }
     } catch (e) {
       _showMessage('Failed to export PDF: $e');
     }
   }
 
-  // Open Claude chat with document
+  // Export to Markdown file with option to show in Finder
+  Future<void> _exportToMarkdown() async {
+    if (_currentDocument == null) return;
+
+    try {
+      final fileName = '${_currentDocument!.title.replaceAll(RegExp(r'[^\w\s-]'), '')}.md';
+
+      // Show save file dialog - defaults to Downloads folder
+      final outputPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save Markdown',
+        fileName: fileName,
+        initialDirectory: Platform.isMacOS
+            ? '${Platform.environment['HOME']}/Downloads'
+            : null,
+      );
+
+      if (outputPath != null) {
+        final file = File(outputPath);
+        await file.writeAsString(_currentDocument!.content);
+        _showExportSuccessDialog(outputPath);
+      }
+    } catch (e) {
+      _showMessage('Failed to export Markdown: $e');
+    }
+  }
+
+  // Show export success dialog with option to show in Finder
+  void _showExportSuccessDialog(String filePath) {
+    showCupertinoDialog(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        content: const Text('File exported successfully'),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('OK'),
+            onPressed: () => Navigator.pop(context),
+          ),
+          if (Platform.isMacOS)
+            CupertinoDialogAction(
+              isDefaultAction: true,
+              onPressed: () async {
+                Navigator.pop(context);
+                // Show file in Finder on macOS
+                await Process.run('open', ['-R', filePath]);
+              },
+              child: const Text('Show in Finder'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // Open Claude chat with document using deep link format
   Future<void> _openClaudeChat() async {
     if (_currentDocument == null || _currentDocument!.content.isEmpty) {
       _showMessage('Document is empty');
       return;
     }
 
-    // Copy content to clipboard first
-    await Clipboard.setData(ClipboardData(text: _currentDocument!.content));
+    // Encode content for URL using deep link format
+    final encodedContent = Uri.encodeComponent(_currentDocument!.content);
 
-    // Open Claude.ai
-    final uri = Uri.parse('https://claude.ai/new');
+    // Use Claude's deep link format to prefill the text
+    final uri = Uri.parse('https://claude.ai/new?q=$encodedContent');
 
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
-      _showMessage('Document copied to clipboard. Paste in Claude chat.');
     } else {
       _showMessage('Could not open Claude.ai');
     }
@@ -327,6 +399,207 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     _controller.selection = TextSelection.collapsed(
       offset: lineStart + cursorOffset + (selection.start - lineStart - hashCount - (hashCount > 0 ? 1 : 0)),
     );
+  }
+
+  // Wrap selection with markdown bold syntax
+  void _toggleBold() {
+    final selection = _controller.selection;
+    if (!selection.isValid) return;
+
+    final text = _controller.text;
+    final selectedText = selection.textInside(text);
+
+    // Check if already bold
+    final before = selection.start >= 2 ? text.substring(selection.start - 2, selection.start) : '';
+    final after = selection.end + 2 <= text.length ? text.substring(selection.end, selection.end + 2) : '';
+
+    if (before == '**' && after == '**') {
+      // Remove bold
+      final newText = text.substring(0, selection.start - 2) +
+                      selectedText +
+                      text.substring(selection.end + 2);
+      _controller.text = newText;
+      _controller.selection = TextSelection.collapsed(offset: selection.start - 2 + selectedText.length);
+    } else {
+      // Add bold
+      final newText = text.substring(0, selection.start) +
+                      '**$selectedText**' +
+                      text.substring(selection.end);
+      _controller.text = newText;
+      _controller.selection = TextSelection(
+        baseOffset: selection.start + 2,
+        extentOffset: selection.start + 2 + selectedText.length,
+      );
+    }
+  }
+
+  // Wrap selection with markdown italic syntax
+  void _toggleItalic() {
+    final selection = _controller.selection;
+    if (!selection.isValid) return;
+
+    final text = _controller.text;
+    final selectedText = selection.textInside(text);
+
+    // Check if already italic
+    final before = selection.start >= 1 ? text.substring(selection.start - 1, selection.start) : '';
+    final after = selection.end + 1 <= text.length ? text.substring(selection.end, selection.end + 1) : '';
+
+    if (before == '*' && after == '*') {
+      // Remove italic
+      final newText = text.substring(0, selection.start - 1) +
+                      selectedText +
+                      text.substring(selection.end + 1);
+      _controller.text = newText;
+      _controller.selection = TextSelection.collapsed(offset: selection.start - 1 + selectedText.length);
+    } else {
+      // Add italic
+      final newText = text.substring(0, selection.start) +
+                      '*$selectedText*' +
+                      text.substring(selection.end);
+      _controller.text = newText;
+      _controller.selection = TextSelection(
+        baseOffset: selection.start + 1,
+        extentOffset: selection.start + 1 + selectedText.length,
+      );
+    }
+  }
+
+  // Handle automatic list continuation when Enter is pressed
+  void _handleListContinuation() {
+    // Prevent recursive calls when we modify the text
+    if (_isHandlingListContinuation) return;
+
+    final selection = _controller.selection;
+    if (!selection.isValid || selection.start != selection.end) return;
+
+    final text = _controller.text;
+    final cursorPos = selection.start;
+    final currentLength = text.length;
+
+    // Only trigger if text got longer (addition, not deletion)
+    // This prevents the handler from triggering when deleting characters
+    if (currentLength <= _lastTextLength) {
+      _lastTextLength = currentLength;
+      return;
+    }
+
+    // Only handle newline case (continuing lists)
+    if (cursorPos >= 1 && cursorPos <= text.length && text[cursorPos - 1] == '\n') {
+      _handleNewlineInList(text, cursorPos);
+    }
+
+    _lastTextLength = currentLength;
+  }
+
+  // Handle Enter key - continue or exit list
+  void _handleNewlineInList(String text, int cursorPos) {
+    // Find the previous line (before the newline we just added)
+    var prevLineStart = cursorPos - 2; // Start before the newline
+    while (prevLineStart > 0 && text[prevLineStart - 1] != '\n') {
+      prevLineStart--;
+    }
+
+    // Get previous line content
+    final prevLineEnd = cursorPos - 1; // The newline position
+    if (prevLineStart >= prevLineEnd) return;
+
+    final prevLine = text.substring(prevLineStart, prevLineEnd);
+
+    // Check for bullet list (- or *)
+    final bulletMatch = RegExp(r'^([-*]) (.*)$').firstMatch(prevLine);
+    if (bulletMatch != null) {
+      _isHandlingListContinuation = true;
+
+      final marker = bulletMatch.group(1)!;
+      final content = bulletMatch.group(2)!;
+
+      // If previous line was empty bullet, remove it and keep the newline (exit list)
+      if (content.isEmpty) {
+        final newText = text.substring(0, prevLineStart) + text.substring(prevLineEnd);
+        _controller.text = newText;
+        _controller.selection = TextSelection.collapsed(offset: prevLineStart);
+        _isHandlingListContinuation = false;
+        return;
+      }
+
+      // Add bullet marker on new line
+      final newText = text.substring(0, cursorPos) + '$marker ' + text.substring(cursorPos);
+      _controller.text = newText;
+      _controller.selection = TextSelection.collapsed(offset: cursorPos + 2);
+      _isHandlingListContinuation = false;
+      return;
+    }
+
+    // Check for numbered list (1. 2. etc)
+    final numberedMatch = RegExp(r'^(\d+)\. (.*)$').firstMatch(prevLine);
+    if (numberedMatch != null) {
+      _isHandlingListContinuation = true;
+
+      final number = int.parse(numberedMatch.group(1)!);
+      final content = numberedMatch.group(2)!;
+
+      // If previous line was empty numbered item, remove it and keep the newline (exit list)
+      if (content.isEmpty) {
+        final newText = text.substring(0, prevLineStart) + text.substring(prevLineEnd);
+        _controller.text = newText;
+        _controller.selection = TextSelection.collapsed(offset: prevLineStart);
+        _isHandlingListContinuation = false;
+        return;
+      }
+
+      // Add next number on new line
+      final nextNumber = number + 1;
+      final newText = text.substring(0, cursorPos) + '$nextNumber. ' + text.substring(cursorPos);
+      _controller.text = newText;
+      _controller.selection = TextSelection.collapsed(offset: cursorPos + nextNumber.toString().length + 2);
+      _isHandlingListContinuation = false;
+      return;
+    }
+  }
+
+  // Detect markdown shortcuts as user types (##, ###, -, *, 1.)
+  // This creates a Notion-like experience where typing "## " auto-formats
+  void _detectMarkdownShortcuts() {
+    final selection = _controller.selection;
+    if (!selection.isValid || selection.start != selection.end) return;
+
+    final text = _controller.text;
+    final cursorPos = selection.start;
+
+    // Guard against empty text or cursor at start
+    if (cursorPos <= 0 || text.isEmpty) return;
+
+    // Find the start of the current line
+    var lineStart = cursorPos;
+    while (lineStart > 0 && text[lineStart - 1] != '\n') {
+      lineStart--;
+    }
+
+    // Ensure valid range for substring
+    if (lineStart < 0 || lineStart >= cursorPos) return;
+
+    // Get the text from line start to cursor
+    final linePrefix = text.substring(lineStart, cursorPos);
+
+    // Only process if we just typed a space after a markdown pattern
+    if (!linePrefix.endsWith(' ')) return;
+
+    // Check for heading patterns: #, ##, ###
+    final headingMatch = RegExp(r'^(#{1,3}) $').firstMatch(linePrefix);
+    if (headingMatch != null) {
+      // Keep the heading markers - they're already there
+      // No action needed - user typed "## " and we want to keep it as is
+      return;
+    }
+
+    // Check for list patterns: -, *, 1.
+    final listMatch = RegExp(r'^(\d+\.|[-*]) $').firstMatch(linePrefix);
+    if (listMatch != null) {
+      // Keep the list markers - they're already there
+      // No action needed - user typed "- " or "1. " and we want to keep it as is
+      return;
+    }
   }
 
   // Show theme and brightness settings modal
@@ -481,70 +754,122 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     );
   }
 
-  // Show actions menu
+  // Show actions menu as a dropdown popup
   void _showActionsMenu() {
+    final systemBrightness = MediaQuery.platformBrightnessOf(context);
+    final isDark = widget.settingsService.isDark(systemBrightness);
+
     showCupertinoModalPopup(
       context: context,
-      builder: (context) => CupertinoActionSheet(
-        title: const Text('Format & Actions'),
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              _insertHeading();
-            },
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text('Cycle Heading Level'),
-                Text('Cmd+H', style: TextStyle(color: CupertinoColors.systemGrey, fontSize: 14)),
+      builder: (context) => Container(
+        margin: const EdgeInsets.only(top: 60, right: 10),
+        child: Align(
+          alignment: Alignment.topRight,
+          child: Container(
+            width: 280,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1C1C1E) : CupertinoColors.white,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.2),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
               ],
             ),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              _toggleFullWidth();
-            },
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(_isFullWidth ? 'Exit Full Width' : 'Full Width Mode'),
-                const Text('Cmd+W', style: TextStyle(color: CupertinoColors.systemGrey, fontSize: 14)),
-              ],
+            child: Material(
+              color: Colors.transparent,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildMenuOption(
+                    'Cycle Heading Level',
+                    'Cmd+H',
+                    () {
+                      Navigator.pop(context);
+                      _insertHeading();
+                    },
+                    isDark,
+                  ),
+                  _buildMenuOption(
+                    _isFullWidth ? 'Exit Full Width' : 'Full Width Mode',
+                    'Cmd+W',
+                    () {
+                      Navigator.pop(context);
+                      _toggleFullWidth();
+                    },
+                    isDark,
+                  ),
+                  _buildMenuOption(
+                    'Export to PDF',
+                    'Cmd+P',
+                    () {
+                      Navigator.pop(context);
+                      _exportToPdf();
+                    },
+                    isDark,
+                  ),
+                  _buildMenuOption(
+                    'Export to Markdown',
+                    null,
+                    () {
+                      Navigator.pop(context);
+                      _exportToMarkdown();
+                    },
+                    isDark,
+                  ),
+                  _buildMenuOption(
+                    'Open in Claude Chat',
+                    'Cmd+L',
+                    () {
+                      Navigator.pop(context);
+                      _openClaudeChat();
+                    },
+                    isDark,
+                    isLast: true,
+                  ),
+                ],
+              ),
             ),
           ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              _exportToPdf();
-            },
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text('Export to PDF'),
-                Text('Cmd+P', style: TextStyle(color: CupertinoColors.systemGrey, fontSize: 14)),
-              ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMenuOption(String title, String? shortcut, VoidCallback onTap, bool isDark, {bool isLast = false}) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          border: isLast ? null : Border(
+            bottom: BorderSide(
+              color: isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey6,
+              width: 0.5,
             ),
           ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.pop(context);
-              _openClaudeChat();
-            },
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text('Open in Claude Chat'),
-                Text('Cmd+L', style: TextStyle(color: CupertinoColors.systemGrey, fontSize: 14)),
-              ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 15,
+                color: widget.settingsService.getTextColor(isDark),
+              ),
             ),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          isDestructiveAction: true,
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+            if (shortcut != null)
+              Text(
+                shortcut,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: CupertinoColors.systemGrey,
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -675,6 +1000,152 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     }
   }
 
+  // Build reading view with formatted markdown
+  Widget _buildReadingView(Color textColor) {
+    final lines = _controller.text.split('\n');
+    final widgets = <Widget>[];
+
+    for (var line in lines) {
+      if (line.isEmpty) {
+        widgets.add(const SizedBox(height: 12));
+        continue;
+      }
+
+      // Handle headings with proper sizes
+      if (line.startsWith('### ')) {
+        widgets.add(const SizedBox(height: 16));
+        widgets.add(
+          Text(
+            line.substring(4),
+            style: TextStyle(
+              fontFamily: 'Times New Roman',
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+              height: 1.4,
+            ),
+          ),
+        );
+        widgets.add(const SizedBox(height: 8));
+      } else if (line.startsWith('## ')) {
+        widgets.add(const SizedBox(height: 18));
+        widgets.add(
+          Text(
+            line.substring(3),
+            style: TextStyle(
+              fontFamily: 'Times New Roman',
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+              height: 1.4,
+            ),
+          ),
+        );
+        widgets.add(const SizedBox(height: 10));
+      } else if (line.startsWith('# ')) {
+        widgets.add(const SizedBox(height: 20));
+        widgets.add(
+          Text(
+            line.substring(2),
+            style: TextStyle(
+              fontFamily: 'Times New Roman',
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              color: textColor,
+              height: 1.4,
+            ),
+          ),
+        );
+        widgets.add(const SizedBox(height: 12));
+      } else {
+        // Regular text - parse inline formatting
+        widgets.add(
+          Text.rich(
+            _parseInlineMarkdown(line, textColor),
+            style: TextStyle(
+              fontFamily: 'Times New Roman',
+              fontSize: 18,
+              height: 1.8,
+              color: textColor,
+            ),
+          ),
+        );
+      }
+    }
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: widgets,
+      ),
+    );
+  }
+
+  // Parse inline markdown (bold, italic)
+  TextSpan _parseInlineMarkdown(String text, Color textColor) {
+    final spans = <TextSpan>[];
+    var currentIndex = 0;
+
+    // Simple regex-based parsing for **bold** and *italic*
+    final boldRegex = RegExp(r'\*\*(.+?)\*\*');
+    final italicRegex = RegExp(r'\*(.+?)\*');
+
+    while (currentIndex < text.length) {
+      // Check for bold
+      final boldMatch = boldRegex.firstMatch(text.substring(currentIndex));
+      final italicMatch = italicRegex.firstMatch(text.substring(currentIndex));
+
+      if (boldMatch != null && (italicMatch == null || boldMatch.start <= italicMatch.start)) {
+        // Add text before bold
+        if (boldMatch.start > 0) {
+          spans.add(TextSpan(
+            text: text.substring(currentIndex, currentIndex + boldMatch.start),
+            style: TextStyle(color: textColor),
+          ));
+        }
+
+        // Add bold text
+        spans.add(TextSpan(
+          text: boldMatch.group(1),
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: textColor,
+          ),
+        ));
+
+        currentIndex += boldMatch.end;
+      } else if (italicMatch != null) {
+        // Add text before italic
+        if (italicMatch.start > 0) {
+          spans.add(TextSpan(
+            text: text.substring(currentIndex, currentIndex + italicMatch.start),
+            style: TextStyle(color: textColor),
+          ));
+        }
+
+        // Add italic text
+        spans.add(TextSpan(
+          text: italicMatch.group(1),
+          style: TextStyle(
+            fontStyle: FontStyle.italic,
+            color: textColor,
+          ),
+        ));
+
+        currentIndex += italicMatch.end;
+      } else {
+        // No more formatting, add remaining text
+        spans.add(TextSpan(
+          text: text.substring(currentIndex),
+          style: TextStyle(color: textColor),
+        ));
+        break;
+      }
+    }
+
+    return TextSpan(children: spans.isEmpty ? [TextSpan(text: text, style: TextStyle(color: textColor))] : spans);
+  }
+
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
@@ -764,6 +1235,19 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                       CupertinoButton(
                         padding: EdgeInsets.zero,
                         child: Icon(
+                          _showPreview ? CupertinoIcons.pencil : CupertinoIcons.eye,
+                          color: widget.settingsService.getTextColor(isDark),
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _showPreview = !_showPreview;
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        child: Icon(
                           _getThemeIcon(),
                           color: widget.settingsService.getTextColor(isDark),
                         ),
@@ -799,14 +1283,43 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                         horizontal: 20,
                         vertical: 0, // Remove unnecessary top/bottom margins
                       ),
-                    child: Theme(
-                      data: ThemeData(
-                        textSelectionTheme: TextSelectionThemeData(
-                          selectionColor: selectionColor,
-                          cursorColor: textColor,
-                        ),
-                      ),
-                      child: NotificationListener<ScrollNotification>(
+                    child: Shortcuts(
+                      shortcuts: <ShortcutActivator, Intent>{
+                        LogicalKeySet(LogicalKeyboardKey.meta, LogicalKeyboardKey.keyB): const BoldIntent(),
+                        LogicalKeySet(LogicalKeyboardKey.meta, LogicalKeyboardKey.keyI): const ItalicIntent(),
+                        LogicalKeySet(LogicalKeyboardKey.meta, LogicalKeyboardKey.keyH): const HeadingIntent(),
+                      },
+                      child: Actions(
+                        actions: <Type, Action<Intent>>{
+                          BoldIntent: CallbackAction<BoldIntent>(
+                            onInvoke: (BoldIntent intent) {
+                              _toggleBold();
+                              return null;
+                            },
+                          ),
+                          ItalicIntent: CallbackAction<ItalicIntent>(
+                            onInvoke: (ItalicIntent intent) {
+                              _toggleItalic();
+                              return null;
+                            },
+                          ),
+                          HeadingIntent: CallbackAction<HeadingIntent>(
+                            onInvoke: (HeadingIntent intent) {
+                              _insertHeading();
+                              return null;
+                            },
+                          ),
+                        },
+                        child: Theme(
+                          data: ThemeData(
+                            textSelectionTheme: TextSelectionThemeData(
+                              selectionColor: selectionColor,
+                              cursorColor: textColor,
+                            ),
+                          ),
+                          child: _showPreview
+                            ? _buildReadingView(textColor)
+                            : NotificationListener<ScrollNotification>(
                         onNotification: (ScrollNotification notification) {
                           // Dismiss keyboard when scrolling up by about half a page on Android
                           if (notification is ScrollUpdateNotification) {
@@ -832,7 +1345,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                           style: TextStyle(
                             fontFamily: 'Times New Roman',
                             fontSize: 18,
-                            height: 1.6,
+                            height: 1.8, // Increased from 1.6 for better paragraph spacing
                             color: textColor,
                           ),
                           cursorColor: textColor,
@@ -840,7 +1353,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                           placeholderStyle: TextStyle(
                             fontFamily: 'Times New Roman',
                             fontSize: 18,
-                            height: 1.6,
+                            height: 1.8, // Increased from 1.6 for better paragraph spacing
                             color: placeholderColor,
                           ),
                         ),
@@ -849,7 +1362,9 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                   ),
                 ),
               ),
-              ),
+            ),
+          ),
+        ),
 
               // Sidebar backdrop - tap outside to dismiss
               if (_showSidebar)
