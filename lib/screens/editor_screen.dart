@@ -169,7 +169,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     });
   }
 
-  // Create new document with date and time as default title (e.g., "Oct 25 6:31 pm")
+  // Create new document with date and time as default title (e.g., "Mon Oct 25 6:31 pm")
   Future<void> _createNewDocument() async {
     // Save current document first
     if (_currentDocument != null) {
@@ -179,11 +179,12 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
 
     // Generate default title with current date and time
     final now = DateTime.now();
+    final weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     final hour = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
     final minute = now.minute.toString().padLeft(2, '0');
     final period = now.hour >= 12 ? 'pm' : 'am';
-    final defaultTitle = '${months[now.month - 1]} ${now.day} $hour:$minute $period';
+    final defaultTitle = '${weekdays[now.weekday - 1]} ${months[now.month - 1]} ${now.day} $hour:$minute $period';
 
     // Create new document with empty content and timestamp as title
     final newDoc = Document(
@@ -1209,22 +1210,19 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                   ),
                   middle: _isEditingTitle
                       ? SizedBox(
-                          width: 200,
+                          width: 250,
                           child: CupertinoTextField(
                             controller: _titleController,
                             focusNode: _titleFocusNode,
                             textAlign: TextAlign.center,
+                            autofocus: true,
+                            enabled: true,
                             style: TextStyle(
                               color: widget.settingsService.getTextColor(isDark),
                               fontSize: 17,
                             ),
-                            decoration: BoxDecoration(
-                              border: Border(
-                                bottom: BorderSide(
-                                  color: widget.settingsService.getTextColor(isDark).withOpacity(0.3),
-                                  width: 1,
-                                ),
-                              ),
+                            decoration: const BoxDecoration(
+                              border: null,
                             ),
                             onSubmitted: (_) => _saveTitle(),
                           ),
