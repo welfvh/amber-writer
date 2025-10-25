@@ -50,8 +50,6 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   bool _showUI = true;
   bool _showSidebar = false;
   double _lastScrollOffset = 0.0;
-  bool _isHandlingListContinuation = false;
-  int _lastTextLength = 0;
 
   @override
   void initState() {
@@ -67,7 +65,6 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     _controller.addListener(() {
       _autoSave();
       _detectMarkdownShortcuts();
-      _handleListContinuation();
       // Hide UI when typing
       if (_showUI) {
         setState(() {
@@ -462,99 +459,6 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
         baseOffset: selection.start + 1,
         extentOffset: selection.start + 1 + selectedText.length,
       );
-    }
-  }
-
-  // Handle automatic list continuation when Enter is pressed
-  void _handleListContinuation() {
-    // Prevent recursive calls when we modify the text
-    if (_isHandlingListContinuation) return;
-
-    final selection = _controller.selection;
-    if (!selection.isValid || selection.start != selection.end) return;
-
-    final text = _controller.text;
-    final cursorPos = selection.start;
-    final currentLength = text.length;
-
-    // Only trigger if text got longer (addition, not deletion)
-    // This prevents the handler from triggering when deleting characters
-    if (currentLength <= _lastTextLength) {
-      _lastTextLength = currentLength;
-      return;
-    }
-
-    // Only handle newline case (continuing lists)
-    if (cursorPos >= 1 && cursorPos <= text.length && text[cursorPos - 1] == '\n') {
-      _handleNewlineInList(text, cursorPos);
-    }
-
-    _lastTextLength = currentLength;
-  }
-
-  // Handle Enter key - continue or exit list
-  void _handleNewlineInList(String text, int cursorPos) {
-    // Find the previous line (before the newline we just added)
-    var prevLineStart = cursorPos - 2; // Start before the newline
-    while (prevLineStart > 0 && text[prevLineStart - 1] != '\n') {
-      prevLineStart--;
-    }
-
-    // Get previous line content
-    final prevLineEnd = cursorPos - 1; // The newline position
-    if (prevLineStart >= prevLineEnd) return;
-
-    final prevLine = text.substring(prevLineStart, prevLineEnd);
-
-    // Check for bullet list (- or *)
-    final bulletMatch = RegExp(r'^([-*]) (.*)$').firstMatch(prevLine);
-    if (bulletMatch != null) {
-      _isHandlingListContinuation = true;
-
-      final marker = bulletMatch.group(1)!;
-      final content = bulletMatch.group(2)!;
-
-      // If previous line was empty bullet, remove it and keep the newline (exit list)
-      if (content.isEmpty) {
-        final newText = text.substring(0, prevLineStart) + text.substring(prevLineEnd);
-        _controller.text = newText;
-        _controller.selection = TextSelection.collapsed(offset: prevLineStart);
-        _isHandlingListContinuation = false;
-        return;
-      }
-
-      // Add bullet marker on new line
-      final newText = text.substring(0, cursorPos) + '$marker ' + text.substring(cursorPos);
-      _controller.text = newText;
-      _controller.selection = TextSelection.collapsed(offset: cursorPos + 2);
-      _isHandlingListContinuation = false;
-      return;
-    }
-
-    // Check for numbered list (1. 2. etc)
-    final numberedMatch = RegExp(r'^(\d+)\. (.*)$').firstMatch(prevLine);
-    if (numberedMatch != null) {
-      _isHandlingListContinuation = true;
-
-      final number = int.parse(numberedMatch.group(1)!);
-      final content = numberedMatch.group(2)!;
-
-      // If previous line was empty numbered item, remove it and keep the newline (exit list)
-      if (content.isEmpty) {
-        final newText = text.substring(0, prevLineStart) + text.substring(prevLineEnd);
-        _controller.text = newText;
-        _controller.selection = TextSelection.collapsed(offset: prevLineStart);
-        _isHandlingListContinuation = false;
-        return;
-      }
-
-      // Add next number on new line
-      final nextNumber = number + 1;
-      final newText = text.substring(0, cursorPos) + '$nextNumber. ' + text.substring(cursorPos);
-      _controller.text = newText;
-      _controller.selection = TextSelection.collapsed(offset: cursorPos + nextNumber.toString().length + 2);
-      _isHandlingListContinuation = false;
-      return;
     }
   }
 
