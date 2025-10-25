@@ -2,10 +2,13 @@
 // optimized for Daylight Computer with elegant typography using Times New Roman.
 // Uses iOS-style Cupertino widgets for clean, distraction-free writing.
 
+import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'screens/editor_screen.dart';
+import 'screens/mode_selection_screen.dart';
 import 'services/settings_service.dart';
+import 'models/app_mode.dart';
 
 void main() {
   // Allow all orientations (portrait and landscape)
@@ -53,6 +56,9 @@ class _AmberWriterAppState extends State<AmberWriterApp> {
     final effectiveBrightness = _settingsService.getEffectiveBrightness(systemBrightness);
     final isDark = effectiveBrightness == Brightness.dark;
 
+    // Auto-detect mode: macOS = Controller, Android = Display
+    final appMode = Platform.isMacOS ? AppMode.controller : AppMode.display;
+
     return CupertinoApp(
       title: 'Amber Writer',
       theme: CupertinoThemeData(
@@ -69,7 +75,20 @@ class _AmberWriterAppState extends State<AmberWriterApp> {
           ),
         ),
       ),
-      home: EditorScreen(settingsService: _settingsService),
+      home: EditorScreen(
+        settingsService: _settingsService,
+        appMode: appMode,
+      ),
+      routes: {
+        '/mode-selection': (context) => const ModeSelectionScreen(),
+        '/editor': (context) {
+          final mode = ModalRoute.of(context)!.settings.arguments as AppMode;
+          return EditorScreen(
+            settingsService: _settingsService,
+            appMode: mode,
+          );
+        },
+      },
       debugShowCheckedModeBanner: false,
     );
   }

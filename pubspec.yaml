@@ -56,6 +56,12 @@ dependencies:
   # Screen brightness control
   screen_brightness: ^1.0.1
 
+  # WebSocket for state synchronization
+  web_socket_channel: ^3.0.1
+
+  # UUID for device identification
+  uuid: ^4.5.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

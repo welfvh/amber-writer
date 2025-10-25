@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:amber_writer/screens/editor_screen.dart';
 import 'package:amber_writer/services/settings_service.dart';
+import 'package:amber_writer/models/app_mode.dart';
 
 void main() {
   group('Edit/Reading Mode Tests', () {
@@ -13,7 +14,10 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: EditorScreen(settingsService: settingsService),
+          home: EditorScreen(
+            settingsService: settingsService,
+            appMode: AppMode.controller,
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -42,7 +46,10 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: EditorScreen(settingsService: settingsService),
+          home: EditorScreen(
+            settingsService: settingsService,
+            appMode: AppMode.controller,
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -66,7 +73,10 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: EditorScreen(settingsService: settingsService),
+          home: EditorScreen(
+            settingsService: settingsService,
+            appMode: AppMode.controller,
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -91,7 +101,10 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: EditorScreen(settingsService: settingsService),
+          home: EditorScreen(
+            settingsService: settingsService,
+            appMode: AppMode.controller,
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -118,7 +131,10 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: EditorScreen(settingsService: settingsService),
+          home: EditorScreen(
+            settingsService: settingsService,
+            appMode: AppMode.controller,
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -143,7 +159,10 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: EditorScreen(settingsService: settingsService),
+          home: EditorScreen(
+            settingsService: settingsService,
+            appMode: AppMode.controller,
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -167,7 +186,10 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: EditorScreen(settingsService: settingsService),
+          home: EditorScreen(
+            settingsService: settingsService,
+            appMode: AppMode.controller,
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -198,7 +220,10 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: EditorScreen(settingsService: settingsService),
+          home: EditorScreen(
+            settingsService: settingsService,
+            appMode: AppMode.controller,
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -229,7 +254,10 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: EditorScreen(settingsService: settingsService),
+          home: EditorScreen(
+            settingsService: settingsService,
+            appMode: AppMode.controller,
+          ),
         ),
       );
       await tester.pumpAndSettle();
@@ -252,7 +280,10 @@ void main() {
 
       await tester.pumpWidget(
         CupertinoApp(
-          home: EditorScreen(settingsService: settingsService),
+          home: EditorScreen(
+            settingsService: settingsService,
+            appMode: AppMode.controller,
+          ),
         ),
       );
       await tester.pumpAndSettle();

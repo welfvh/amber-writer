@@ -10,9 +10,11 @@ import 'package:uuid/uuid.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'package:file_picker/file_picker.dart';
 import '../models/document.dart';
+import '../models/app_mode.dart';
 import '../services/storage_service.dart';
 import '../services/pdf_service.dart';
 import '../services/settings_service.dart';
+import '../services/text_sync_service.dart';
 
 // Intent classes for keyboard shortcuts
 class BoldIntent extends Intent {
@@ -29,8 +31,13 @@ class HeadingIntent extends Intent {
 
 class EditorScreen extends StatefulWidget {
   final SettingsService settingsService;
+  final AppMode appMode;
 
-  const EditorScreen({super.key, required this.settingsService});
+  const EditorScreen({
+    super.key,
+    required this.settingsService,
+    required this.appMode,
+  });
 
   @override
   State<EditorScreen> createState() => _EditorScreenState();
@@ -43,6 +50,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   final PdfService _pdfService = PdfService();
   final FocusNode _focusNode = FocusNode();
   final FocusNode _titleFocusNode = FocusNode();
+  late final TextSyncService _syncService;
 
   Document? _currentDocument;
   List<Document> _allDocuments = [];
@@ -57,6 +65,21 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // Initialize sync service
+    _syncService = TextSyncService(mode: widget.appMode);
+    _syncService.initialize(_controller);
+    _syncService.addListener(() {
+      setState(() {}); // Rebuild when connection status changes
+    });
+
+    // Start server or connect based on mode
+    if (widget.appMode == AppMode.controller) {
+      _syncService.startServer();
+    } else {
+      _syncService.connectAsClient();
+    }
+
     _loadDocument();
     _loadAllDocuments();
     // Don't apply saved brightness on startup - submit to system brightness instead
@@ -136,6 +159,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
 
   @override
   void dispose() {
+    _syncService.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     _focusNode.dispose();
@@ -759,6 +783,18 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                       _openClaudeChat();
                     },
                     isDark,
+                  ),
+                  _buildMenuOption(
+                    'Change Device Mode',
+                    '',
+                    () {
+                      Navigator.pop(context);
+                      Navigator.of(context).pushNamedAndRemoveUntil(
+                        '/',
+                        (route) => false,
+                      );
+                    },
+                    isDark,
                     isLast: true,
                   ),
                 ],
@@ -1237,6 +1273,17 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Connection status indicator
+                      Icon(
+                        _syncService.isConnected
+                            ? CupertinoIcons.wifi
+                            : CupertinoIcons.wifi_slash,
+                        color: _syncService.isConnected
+                            ? CupertinoColors.activeGreen
+                            : CupertinoColors.systemRed,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
                       CupertinoButton(
                         padding: EdgeInsets.zero,
                         child: Icon(
@@ -1324,7 +1371,14 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                           ),
                           child: _showPreview
                             ? _buildReadingView(textColor)
-                            : NotificationListener<ScrollNotification>(
+                            : MouseRegion(
+                                onHover: widget.appMode == AppMode.controller
+                                    ? (event) {
+                                        // Track mouse position on Controller mode
+                                        _syncService.updateMousePosition(event.localPosition);
+                                      }
+                                    : null,
+                                child: NotificationListener<ScrollNotification>(
                         onNotification: (ScrollNotification notification) {
                           // Dismiss keyboard when scrolling up by about half a page on Android
                           if (notification is ScrollUpdateNotification) {
@@ -1340,29 +1394,39 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                           }
                           return false;
                         },
-                        child: CupertinoTextField(
-                          controller: _controller,
-                          focusNode: _focusNode,
-                          maxLines: null,
-                          expands: true,
-                          autofocus: true,
-                          decoration: const BoxDecoration(),
-                          style: TextStyle(
-                            fontFamily: 'Times New Roman',
-                            fontSize: 18,
-                            height: 1.8, // Increased from 1.6 for better paragraph spacing
-                            color: textColor,
-                          ),
-                          cursorColor: textColor,
-                          placeholder: 'Start writing...',
-                          placeholderStyle: TextStyle(
-                            fontFamily: 'Times New Roman',
-                            fontSize: 18,
-                            height: 1.8, // Increased from 1.6 for better paragraph spacing
-                            color: placeholderColor,
+                        child: AbsorbPointer(
+                          absorbing: widget.appMode == AppMode.display,
+                          child: CupertinoTextField(
+                            controller: _controller,
+                            focusNode: _focusNode,
+                            maxLines: null,
+                            expands: true,
+                            autofocus: true, // Always autofocus to show cursor
+                            showCursor: true, // Always show cursor
+                            decoration: const BoxDecoration(),
+                            style: TextStyle(
+                              fontFamily: 'Times New Roman',
+                              fontSize: 18,
+                              height: 1.8, // Increased from 1.6 for better paragraph spacing
+                              color: textColor,
+                            ),
+                            cursorColor: textColor,
+                            cursorWidth: 2.0, // Slightly thicker for visibility
+                            cursorHeight: 20.0, // Shorter cursor for calm aesthetic
+                            cursorRadius: const Radius.circular(1.0), // Subtle rounding
+                            placeholder: widget.appMode == AppMode.controller
+                                ? 'Start writing...'
+                                : 'Mirroring controller...',
+                            placeholderStyle: TextStyle(
+                              fontFamily: 'Times New Roman',
+                              fontSize: 18,
+                              height: 1.8, // Increased from 1.6 for better paragraph spacing
+                              color: placeholderColor,
+                            ),
                           ),
                         ),
                       ),
+                            ),
                     ),
                   ),
                 ),
