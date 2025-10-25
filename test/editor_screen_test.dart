@@ -60,6 +60,56 @@ void main() {
       // Verify heading is rendered (without # marker in display)
       expect(find.text('Heading'), findsOneWidget);
     });
+
+    testWidgets('Reading mode should render bullet lists with bullets', (WidgetTester tester) async {
+      final settingsService = SettingsService();
+
+      await tester.pumpWidget(
+        CupertinoApp(
+          home: EditorScreen(settingsService: settingsService),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Enter bullet list
+      final textField = find.byType(CupertinoTextField);
+      await tester.enterText(textField, '- First item\n- Second item');
+      await tester.pumpAndSettle();
+
+      // Switch to reading mode
+      final toggleButton = find.byIcon(CupertinoIcons.eye);
+      await tester.tap(toggleButton);
+      await tester.pumpAndSettle();
+
+      // Verify list items are rendered (text should show without the - marker)
+      expect(find.textContaining('First item'), findsOneWidget);
+      expect(find.textContaining('Second item'), findsOneWidget);
+    });
+
+    testWidgets('Reading mode should render numbered lists', (WidgetTester tester) async {
+      final settingsService = SettingsService();
+
+      await tester.pumpWidget(
+        CupertinoApp(
+          home: EditorScreen(settingsService: settingsService),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Enter numbered list
+      final textField = find.byType(CupertinoTextField);
+      await tester.enterText(textField, '1. First\n2. Second');
+      await tester.pumpAndSettle();
+
+      // Switch to reading mode
+      final toggleButton = find.byIcon(CupertinoIcons.eye);
+      await tester.tap(toggleButton);
+      await tester.pumpAndSettle();
+
+      // Verify list items are rendered
+      expect(find.textContaining('First'), findsOneWidget);
+      expect(find.textContaining('Second'), findsOneWidget);
+    });
   });
 
   group('Document Management Tests', () {

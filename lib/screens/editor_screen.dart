@@ -13,7 +13,6 @@ import '../models/document.dart';
 import '../services/storage_service.dart';
 import '../services/pdf_service.dart';
 import '../services/settings_service.dart';
-import '../services/markdown_text_controller.dart';
 
 // Intent classes for keyboard shortcuts
 class BoldIntent extends Intent {
@@ -38,10 +37,12 @@ class EditorScreen extends StatefulWidget {
 }
 
 class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver {
-  final MarkdownTextEditingController _controller = MarkdownTextEditingController();
+  final TextEditingController _controller = TextEditingController();
+  final TextEditingController _titleController = TextEditingController();
   final StorageService _storageService = StorageService();
   final PdfService _pdfService = PdfService();
   final FocusNode _focusNode = FocusNode();
+  final FocusNode _titleFocusNode = FocusNode();
 
   Document? _currentDocument;
   List<Document> _allDocuments = [];
@@ -49,6 +50,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   bool _showPreview = false;
   bool _showUI = true;
   bool _showSidebar = false;
+  bool _isEditingTitle = false;
   double _lastScrollOffset = 0.0;
 
   @override
@@ -80,6 +82,13 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
         setState(() {
           _showUI = true;
         });
+      }
+    });
+
+    // Listen for title focus changes to save on blur
+    _titleFocusNode.addListener(() {
+      if (!_titleFocusNode.hasFocus && _isEditingTitle) {
+        _saveTitle();
       }
     });
   }
@@ -398,69 +407,50 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     );
   }
 
-  // Wrap selection with markdown bold syntax
-  void _toggleBold() {
+  // Generic method to toggle markdown wrapper (bold, italic, etc.)
+  void _toggleMarkdownWrapper(String marker) {
     final selection = _controller.selection;
     if (!selection.isValid) return;
 
     final text = _controller.text;
     final selectedText = selection.textInside(text);
+    final markerLength = marker.length;
 
-    // Check if already bold
-    final before = selection.start >= 2 ? text.substring(selection.start - 2, selection.start) : '';
-    final after = selection.end + 2 <= text.length ? text.substring(selection.end, selection.end + 2) : '';
+    // Check if already wrapped with this marker
+    final before = selection.start >= markerLength
+        ? text.substring(selection.start - markerLength, selection.start)
+        : '';
+    final after = selection.end + markerLength <= text.length
+        ? text.substring(selection.end, selection.end + markerLength)
+        : '';
 
-    if (before == '**' && after == '**') {
-      // Remove bold
-      final newText = text.substring(0, selection.start - 2) +
+    if (before == marker && after == marker) {
+      // Remove wrapper
+      final newText = text.substring(0, selection.start - markerLength) +
                       selectedText +
-                      text.substring(selection.end + 2);
+                      text.substring(selection.end + markerLength);
       _controller.text = newText;
-      _controller.selection = TextSelection.collapsed(offset: selection.start - 2 + selectedText.length);
+      _controller.selection = TextSelection.collapsed(
+        offset: selection.start - markerLength + selectedText.length,
+      );
     } else {
-      // Add bold
+      // Add wrapper
       final newText = text.substring(0, selection.start) +
-                      '**$selectedText**' +
+                      '$marker$selectedText$marker' +
                       text.substring(selection.end);
       _controller.text = newText;
       _controller.selection = TextSelection(
-        baseOffset: selection.start + 2,
-        extentOffset: selection.start + 2 + selectedText.length,
+        baseOffset: selection.start + markerLength,
+        extentOffset: selection.start + markerLength + selectedText.length,
       );
     }
   }
+
+  // Wrap selection with markdown bold syntax
+  void _toggleBold() => _toggleMarkdownWrapper('**');
 
   // Wrap selection with markdown italic syntax
-  void _toggleItalic() {
-    final selection = _controller.selection;
-    if (!selection.isValid) return;
-
-    final text = _controller.text;
-    final selectedText = selection.textInside(text);
-
-    // Check if already italic
-    final before = selection.start >= 1 ? text.substring(selection.start - 1, selection.start) : '';
-    final after = selection.end + 1 <= text.length ? text.substring(selection.end, selection.end + 1) : '';
-
-    if (before == '*' && after == '*') {
-      // Remove italic
-      final newText = text.substring(0, selection.start - 1) +
-                      selectedText +
-                      text.substring(selection.end + 1);
-      _controller.text = newText;
-      _controller.selection = TextSelection.collapsed(offset: selection.start - 1 + selectedText.length);
-    } else {
-      // Add italic
-      final newText = text.substring(0, selection.start) +
-                      '*$selectedText*' +
-                      text.substring(selection.end);
-      _controller.text = newText;
-      _controller.selection = TextSelection(
-        baseOffset: selection.start + 1,
-        extentOffset: selection.start + 1 + selectedText.length,
-      );
-    }
-  }
+  void _toggleItalic() => _toggleMarkdownWrapper('*');
 
   // Detect markdown shortcuts as user types (##, ###, -, *, 1.)
   // This creates a Notion-like experience where typing "## " auto-formats
@@ -811,67 +801,59 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     }
   }
 
-  // Show dialog to edit document title
-  Future<void> _editDocumentTitle() async {
+  // Start editing document title inline
+  void _startEditingTitle() {
     if (_currentDocument == null) return;
 
-    final TextEditingController titleController = TextEditingController(text: _currentDocument!.title);
+    setState(() {
+      _isEditingTitle = true;
+      _titleController.text = _currentDocument!.title;
+    });
 
-    await showCupertinoDialog(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('Edit Document Title'),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: CupertinoTextField(
-            controller: titleController,
-            placeholder: 'Document title',
-            autofocus: true,
-          ),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            child: const Text('Cancel'),
-            onPressed: () => Navigator.pop(context),
-          ),
-          CupertinoDialogAction(
-            isDefaultAction: true,
-            onPressed: () async {
-              final newTitle = titleController.text.trim();
-              if (newTitle.isNotEmpty) {
-                // Update document with custom title by modifying the first line
-                final lines = _controller.text.split('\n');
-                String newContent;
-                if (lines.isEmpty || lines.first.trim().isEmpty) {
-                  newContent = newTitle + '\n' + _controller.text;
-                } else {
-                  // Replace first line with new title
-                  lines[0] = newTitle;
-                  newContent = lines.join('\n');
-                }
-                _controller.text = newContent;
+    // Focus the title field on next frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _titleFocusNode.requestFocus();
+      _titleController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: _titleController.text.length,
+      );
+    });
+  }
 
-                final updatedDoc = _currentDocument!.copyWith(
-                  content: newContent,
-                  lastModified: DateTime.now(),
-                );
+  // Save title when done editing
+  Future<void> _saveTitle() async {
+    if (_currentDocument == null || !_isEditingTitle) return;
 
-                await _storageService.saveCurrentDocument(updatedDoc);
-                await _storageService.saveDocument(updatedDoc);
-                setState(() {
-                  _currentDocument = updatedDoc;
-                });
-                await _loadAllDocuments();
-              }
-              Navigator.pop(context);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
+    final newTitle = _titleController.text.trim();
+    if (newTitle.isNotEmpty && newTitle != _currentDocument!.title) {
+      // Update document with custom title by modifying the first line
+      final lines = _controller.text.split('\n');
+      String newContent;
+      if (lines.isEmpty || lines.first.trim().isEmpty) {
+        newContent = '$newTitle\n${_controller.text}';
+      } else {
+        // Replace first line with new title
+        lines[0] = newTitle;
+        newContent = lines.join('\n');
+      }
+      _controller.text = newContent;
 
-    titleController.dispose();
+      final updatedDoc = _currentDocument!.copyWith(
+        content: newContent,
+        lastModified: DateTime.now(),
+      );
+
+      await _storageService.saveCurrentDocument(updatedDoc);
+      await _storageService.saveDocument(updatedDoc);
+      setState(() {
+        _currentDocument = updatedDoc;
+      });
+      await _loadAllDocuments();
+    }
+
+    setState(() {
+      _isEditingTitle = false;
+    });
   }
 
   // Convert brightness value (0.0-1.0) to logarithmic slider position (0.0-1.0)
@@ -961,19 +943,88 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
           ),
         );
         widgets.add(const SizedBox(height: 12));
-      } else {
-        // Regular text - parse inline formatting
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        // Bullet list item
         widgets.add(
-          Text.rich(
-            _parseInlineMarkdown(line, textColor),
-            style: TextStyle(
-              fontFamily: 'Times New Roman',
-              fontSize: 18,
-              height: 1.8,
-              color: textColor,
+          Padding(
+            padding: const EdgeInsets.only(left: 20),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '• ',
+                  style: TextStyle(
+                    fontFamily: 'Times New Roman',
+                    fontSize: 18,
+                    height: 1.8,
+                    color: textColor,
+                  ),
+                ),
+                Expanded(
+                  child: Text.rich(
+                    _parseInlineMarkdown(line.substring(2), textColor),
+                    style: TextStyle(
+                      fontFamily: 'Times New Roman',
+                      fontSize: 18,
+                      height: 1.8,
+                      color: textColor,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         );
+      } else {
+        // Check for numbered list
+        final numberedMatch = RegExp(r'^(\d+)\.\s+(.*)$').firstMatch(line);
+        if (numberedMatch != null) {
+          final number = numberedMatch.group(1)!;
+          final content = numberedMatch.group(2)!;
+          widgets.add(
+            Padding(
+              padding: const EdgeInsets.only(left: 20),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$number. ',
+                    style: TextStyle(
+                      fontFamily: 'Times New Roman',
+                      fontSize: 18,
+                      height: 1.8,
+                      color: textColor,
+                    ),
+                  ),
+                  Expanded(
+                    child: Text.rich(
+                      _parseInlineMarkdown(content, textColor),
+                      style: TextStyle(
+                        fontFamily: 'Times New Roman',
+                        fontSize: 18,
+                        height: 1.8,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        } else {
+          // Regular text - parse inline formatting
+          widgets.add(
+            Text.rich(
+              _parseInlineMarkdown(line, textColor),
+              style: TextStyle(
+                fontFamily: 'Times New Roman',
+                fontSize: 18,
+                height: 1.8,
+                color: textColor,
+              ),
+            ),
+          );
+        }
       }
     }
 
@@ -1126,13 +1177,35 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                       ),
                     ],
                   ),
-                  middle: GestureDetector(
-                    onTap: _editDocumentTitle,
-                    child: Text(
-                      _currentDocument?.title ?? 'Untitled',
-                      style: TextStyle(color: widget.settingsService.getTextColor(isDark)),
-                    ),
-                  ),
+                  middle: _isEditingTitle
+                      ? SizedBox(
+                          width: 200,
+                          child: CupertinoTextField(
+                            controller: _titleController,
+                            focusNode: _titleFocusNode,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: widget.settingsService.getTextColor(isDark),
+                              fontSize: 17,
+                            ),
+                            decoration: BoxDecoration(
+                              border: Border(
+                                bottom: BorderSide(
+                                  color: widget.settingsService.getTextColor(isDark).withOpacity(0.3),
+                                  width: 1,
+                                ),
+                              ),
+                            ),
+                            onSubmitted: (_) => _saveTitle(),
+                          ),
+                        )
+                      : GestureDetector(
+                          onTap: _startEditingTitle,
+                          child: Text(
+                            _currentDocument?.title ?? 'Untitled',
+                            style: TextStyle(color: widget.settingsService.getTextColor(isDark)),
+                          ),
+                        ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
