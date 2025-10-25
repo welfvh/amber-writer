@@ -169,7 +169,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     });
   }
 
-  // Create new document with date as default title (e.g., "Mon Oct 29")
+  // Create new document with date and time as default title (e.g., "Oct 25 6:31 pm")
   Future<void> _createNewDocument() async {
     // Save current document first
     if (_currentDocument != null) {
@@ -177,22 +177,25 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       await _storageService.saveCurrentDocument(_currentDocument!);
     }
 
-    // Generate default title with current date
+    // Generate default title with current date and time
     final now = DateTime.now();
-    final weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    final defaultTitle = '${weekdays[now.weekday - 1]} ${months[now.month - 1]} ${now.day}';
+    final hour = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
+    final minute = now.minute.toString().padLeft(2, '0');
+    final period = now.hour >= 12 ? 'pm' : 'am';
+    final defaultTitle = '${months[now.month - 1]} ${now.day} $hour:$minute $period';
 
-    // Create new document with date as initial content
+    // Create new document with empty content and timestamp as title
     final newDoc = Document(
       id: const Uuid().v4(),
-      content: defaultTitle,
+      content: '',
       lastModified: DateTime.now(),
+      title: defaultTitle,
     );
 
     setState(() {
       _currentDocument = newDoc;
-      _controller.text = defaultTitle;
+      _controller.text = '';
     });
 
     await _storageService.saveCurrentDocument(newDoc);
@@ -868,20 +871,9 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
 
     final newTitle = _titleController.text.trim();
     if (newTitle.isNotEmpty && newTitle != _currentDocument!.title) {
-      // Update document with custom title by modifying the first line
-      final lines = _controller.text.split('\n');
-      String newContent;
-      if (lines.isEmpty || lines.first.trim().isEmpty) {
-        newContent = '$newTitle\n${_controller.text}';
-      } else {
-        // Replace first line with new title
-        lines[0] = newTitle;
-        newContent = lines.join('\n');
-      }
-      _controller.text = newContent;
-
+      // Update document with new title (don't modify content)
       final updatedDoc = _currentDocument!.copyWith(
-        content: newContent,
+        title: newTitle,
         lastModified: DateTime.now(),
       );
 
