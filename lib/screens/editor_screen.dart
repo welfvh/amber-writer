@@ -1351,6 +1351,27 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
               : null,
           child: Stack(
             children: [
+              // Mouse cursor overlay (Display mode only)
+              if (widget.appMode == AppMode.display && _syncService.mousePosition != null)
+                Positioned(
+                  left: _syncService.mousePosition!.dx,
+                  top: _syncService.mousePosition!.dy,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: CupertinoColors.activeBlue.withOpacity(0.6),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: CupertinoColors.white,
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
               // Main editor - Remove top/bottom SafeArea padding for edge-to-edge content
               MediaQuery.removePadding(
                 context: context,
