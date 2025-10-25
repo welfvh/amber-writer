@@ -216,6 +216,40 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     await _storageService.saveCurrentDocument(doc);
   }
 
+  // Delete a document
+  Future<void> _deleteDocument(Document doc) async {
+    // Show confirmation dialog
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Delete Document'),
+        content: Text('Are you sure you want to delete "${doc.title}"?'),
+        actions: [
+          CupertinoDialogAction(
+            child: const Text('Cancel'),
+            onPressed: () => Navigator.pop(context, false),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Delete from storage
+    await _storageService.deleteDocument(doc.id);
+    await _loadAllDocuments();
+
+    // If we deleted the current document, create a new one
+    if (_currentDocument?.id == doc.id) {
+      await _createNewDocument();
+    }
+  }
+
   // Auto-save document
   Future<void> _autoSave() async {
     if (_currentDocument == null) return;
@@ -824,7 +858,12 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   Future<void> _saveTitle() async {
     if (_currentDocument == null || !_isEditingTitle) return;
 
-    // Unfocus the field first to dismiss keyboard and trigger blur listener properly
+    // Set flag false BEFORE unfocusing to prevent blur listener from triggering another save
+    setState(() {
+      _isEditingTitle = false;
+    });
+
+    // Unfocus the field to dismiss keyboard
     _titleFocusNode.unfocus();
 
     final newTitle = _titleController.text.trim();
@@ -853,10 +892,6 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       });
       await _loadAllDocuments();
     }
-
-    setState(() {
-      _isEditingTitle = false;
-    });
   }
 
   // Convert brightness value (0.0-1.0) to logarithmic slider position (0.0-1.0)
@@ -1415,32 +1450,47 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                                     onTap: () => _switchToDocument(doc),
                                     child: Container(
                                       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      padding: const EdgeInsets.only(left: 12, right: 4, top: 10, bottom: 10),
                                       decoration: BoxDecoration(
                                         color: isCurrentDoc
                                             ? (isDark ? const Color(0xFF2C2C2E) : CupertinoColors.systemGrey6)
                                             : Colors.transparent,
                                         borderRadius: BorderRadius.circular(8),
                                       ),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                      child: Row(
                                         children: [
-                                          Text(
-                                            doc.title,
-                                            style: TextStyle(
-                                              fontSize: 15,
-                                              fontWeight: isCurrentDoc ? FontWeight.w500 : FontWeight.normal,
-                                              color: widget.settingsService.getTextColor(isDark),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  doc.title,
+                                                  style: TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight: isCurrentDoc ? FontWeight.w500 : FontWeight.normal,
+                                                    color: widget.settingsService.getTextColor(isDark),
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  _formatDate(doc.lastModified),
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: CupertinoColors.systemGrey,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
                                           ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            _formatDate(doc.lastModified),
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: CupertinoColors.systemGrey,
+                                          CupertinoButton(
+                                            padding: const EdgeInsets.all(8),
+                                            onPressed: () => _deleteDocument(doc),
+                                            child: Icon(
+                                              CupertinoIcons.trash,
+                                              size: 18,
+                                              color: CupertinoColors.systemRed,
                                             ),
                                           ),
                                         ],

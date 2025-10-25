@@ -58,6 +58,20 @@ class StorageService {
       ..sort((a, b) => b.lastModified.compareTo(a.lastModified));
   }
 
+  // Delete a document by id
+  Future<void> deleteDocument(String documentId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> documentsList = prefs.getStringList(_documentsListKey) ?? [];
+
+    // Remove document with matching id
+    documentsList.removeWhere((jsonString) {
+      final json = jsonDecode(jsonString) as Map<String, dynamic>;
+      return json['id'] == documentId;
+    });
+
+    await prefs.setStringList(_documentsListKey, documentsList);
+  }
+
   // Clear all data (for testing)
   Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
