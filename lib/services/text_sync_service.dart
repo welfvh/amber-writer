@@ -32,6 +32,9 @@ class TextSyncService extends ChangeNotifier {
   String _lastSentText = '';
   Offset? _mousePosition; // Current mouse position (controller only)
   Offset? get mousePosition => _mousePosition; // Expose to display
+  double _scrollOffset = 0.0; // Current scroll position
+  double? get scrollOffset => _scrollOffset; // Expose to display
+  double _lastSentScrollOffset = 0.0;
 
   // Connection state
   bool _isConnected = false;
@@ -142,6 +145,13 @@ class TextSyncService extends ChangeNotifier {
     _scheduleUpdate();
   }
 
+  // Update scroll position (Controller only)
+  void updateScrollPosition(double offset) {
+    if (mode != AppMode.controller) return;
+    _scrollOffset = offset;
+    _scheduleUpdate();
+  }
+
   // Handle local text changes (Controller only)
   void _onLocalChange() {
     if (_isApplyingRemote || mode != AppMode.controller) return;
@@ -179,14 +189,15 @@ class TextSyncService extends ChangeNotifier {
       text: _textController!.text,
       selectionBase: _textController!.selection.baseOffset,
       selectionExtent: _textController!.selection.extentOffset,
-      scrollOffset: 0.0, // Not syncing scroll for now
+      scrollOffset: _scrollOffset,
       mouseX: _mousePosition?.dx,
       mouseY: _mousePosition?.dy,
     );
 
     _lastSentText = _textController!.text;
+    _lastSentScrollOffset = _scrollOffset;
 
-    print('[SYNC] Sending update #${state.sequence}: "${state.text.substring(0, state.text.length > 50 ? 50 : state.text.length)}" | cursor: ${state.selectionBase}-${state.selectionExtent}');
+    print('[SYNC] Sending update #${state.sequence}: "${state.text.substring(0, state.text.length > 50 ? 50 : state.text.length)}" | cursor: ${state.selectionBase}-${state.selectionExtent} | scroll: ${state.scrollOffset.toStringAsFixed(1)}');
 
     try {
       _channel?.sink.add(state.toJsonString());
@@ -212,7 +223,7 @@ class TextSyncService extends ChangeNotifier {
   }
 
   void _applyUpdate(TextState state) {
-    print('[SYNC] Applying update #${state.sequence}: "${state.text.substring(0, state.text.length > 50 ? 50 : state.text.length)}" | cursor: ${state.selectionBase}-${state.selectionExtent}');
+    print('[SYNC] Applying update #${state.sequence}: "${state.text.substring(0, state.text.length > 50 ? 50 : state.text.length)}" | cursor: ${state.selectionBase}-${state.selectionExtent} | scroll: ${state.scrollOffset.toStringAsFixed(1)}');
 
     _isApplyingRemote = true;
 
@@ -231,6 +242,9 @@ class TextSyncService extends ChangeNotifier {
       if (state.mouseX != null && state.mouseY != null) {
         _mousePosition = Offset(state.mouseX!, state.mouseY!);
       }
+
+      // Update scroll position for display rendering
+      _scrollOffset = state.scrollOffset;
     } finally {
       _isApplyingRemote = false;
     }

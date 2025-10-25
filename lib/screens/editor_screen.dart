@@ -50,6 +50,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   final PdfService _pdfService = PdfService();
   final FocusNode _focusNode = FocusNode();
   final FocusNode _titleFocusNode = FocusNode();
+  final ScrollController _scrollController = ScrollController();
   late final TextSyncService _syncService;
 
   Document? _currentDocument;
@@ -60,6 +61,7 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   bool _showSidebar = false;
   bool _isEditingTitle = false;
   double _lastScrollOffset = 0.0;
+  bool _isApplyingRemoteScroll = false; // Prevent scroll feedback loop
 
   @override
   void initState() {
@@ -73,11 +75,22 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
       setState(() {}); // Rebuild when connection status changes
     });
 
+    // Add scroll listener for Controller mode
+    if (widget.appMode == AppMode.controller) {
+      _scrollController.addListener(() {
+        if (!_isApplyingRemoteScroll) {
+          _syncService.updateScrollPosition(_scrollController.offset);
+        }
+      });
+    }
+
     // Start server or connect based on mode
     if (widget.appMode == AppMode.controller) {
       _syncService.startServer();
     } else {
       _syncService.connectAsClient();
+      // Listen for scroll updates on Display mode
+      _syncService.addListener(_applyRemoteScroll);
     }
 
     _loadDocument();
@@ -157,9 +170,27 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
     }
   }
 
+  // Apply scroll position from remote (Display mode only)
+  void _applyRemoteScroll() {
+    if (widget.appMode != AppMode.display) return;
+    if (_syncService.scrollOffset == null) return;
+
+    final targetOffset = _syncService.scrollOffset!;
+    if ((_scrollController.offset - targetOffset).abs() > 1.0) {
+      _isApplyingRemoteScroll = true;
+      _scrollController.jumpTo(targetOffset.clamp(
+        0.0,
+        _scrollController.position.maxScrollExtent,
+      ));
+      _isApplyingRemoteScroll = false;
+    }
+  }
+
   @override
   void dispose() {
+    _syncService.removeListener(_applyRemoteScroll);
     _syncService.dispose();
+    _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _controller.dispose();
     _focusNode.dispose();
@@ -1396,32 +1427,34 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
                         },
                         child: AbsorbPointer(
                           absorbing: widget.appMode == AppMode.display,
-                          child: CupertinoTextField(
-                            controller: _controller,
-                            focusNode: _focusNode,
-                            maxLines: null,
-                            expands: true,
-                            autofocus: true, // Always autofocus to show cursor
-                            showCursor: true, // Always show cursor
-                            decoration: const BoxDecoration(),
-                            style: TextStyle(
-                              fontFamily: 'Times New Roman',
-                              fontSize: 18,
-                              height: 1.8, // Increased from 1.6 for better paragraph spacing
-                              color: textColor,
-                            ),
-                            cursorColor: textColor,
-                            cursorWidth: 2.0, // Slightly thicker for visibility
-                            cursorHeight: 20.0, // Shorter cursor for calm aesthetic
-                            cursorRadius: const Radius.circular(1.0), // Subtle rounding
-                            placeholder: widget.appMode == AppMode.controller
-                                ? 'Start writing...'
-                                : 'Mirroring controller...',
-                            placeholderStyle: TextStyle(
-                              fontFamily: 'Times New Roman',
-                              fontSize: 18,
-                              height: 1.8, // Increased from 1.6 for better paragraph spacing
-                              color: placeholderColor,
+                          child: SingleChildScrollView(
+                            controller: _scrollController,
+                            child: CupertinoTextField(
+                              controller: _controller,
+                              focusNode: _focusNode,
+                              maxLines: null,
+                              autofocus: true, // Always autofocus to show cursor
+                              showCursor: true, // Always show cursor
+                              decoration: const BoxDecoration(),
+                              style: TextStyle(
+                                fontFamily: 'Times New Roman',
+                                fontSize: 18,
+                                height: 1.8,
+                                color: textColor,
+                              ),
+                              cursorColor: textColor,
+                              cursorWidth: 2.0,
+                              cursorHeight: 20.0,
+                              cursorRadius: const Radius.circular(1.0),
+                              placeholder: widget.appMode == AppMode.controller
+                                  ? 'Start writing...'
+                                  : 'Mirroring controller...',
+                              placeholderStyle: TextStyle(
+                                fontFamily: 'Times New Roman',
+                                fontSize: 18,
+                                height: 1.8,
+                                color: placeholderColor,
+                              ),
                             ),
                           ),
                         ),
