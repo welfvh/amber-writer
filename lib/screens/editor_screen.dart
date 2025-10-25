@@ -824,6 +824,9 @@ class _EditorScreenState extends State<EditorScreen> with WidgetsBindingObserver
   Future<void> _saveTitle() async {
     if (_currentDocument == null || !_isEditingTitle) return;
 
+    // Unfocus the field first to dismiss keyboard and trigger blur listener properly
+    _titleFocusNode.unfocus();
+
     final newTitle = _titleController.text.trim();
     if (newTitle.isNotEmpty && newTitle != _currentDocument!.title) {
       // Update document with custom title by modifying the first line
